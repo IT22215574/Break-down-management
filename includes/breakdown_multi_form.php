@@ -3,6 +3,7 @@
 $cls = 'mt-1 w-full border rounded px-3 py-2';
 $now = date('Y-m-d\TH:i');
 $companies = all_companies();
+$technicians = $u['role'] === 'admin' ? active_technicians() : [];
 ?>
 <form method="post" action="<?= e($formAction . '?sector=' . $formSector) ?>" class="mb-6"><?= csrf_field() ?>
   <input type="hidden" name="action" value="create_many"><input type="hidden" name="sector_id" value="<?= (int)$formSector ?>">
@@ -25,6 +26,14 @@ $companies = all_companies();
       <?php foreach (STATUSES as $k => $l): ?><option value="<?= $k ?>" <?= $k === 'fixed' ? 'selected' : '' ?>><?= $l ?></option><?php endforeach; ?></select></label>
     <label class="text-sm">Contacted by (client side)<input data-n="client_name" maxlength="150" class="<?= $cls ?>"></label>
     <label class="text-sm">Fixed by (company side)<input data-n="fixed_by" maxlength="150" value="<?= e($u['name']) ?>" class="<?= $cls ?>"></label>
+    <?php if ($u['role'] === 'admin'): ?>
+    <label class="text-sm flex items-center gap-2"><input type="checkbox" data-n="technician_required" value="1"> Technician required (for non-online issues)</label>
+    <label class="text-sm technician-select-wrap hidden">Assign technician<select data-n="technician_id" class="<?= $cls ?>">
+      <option value="">Select a technician</option>
+      <?php foreach ($technicians as $technician): ?><option value="<?= (int)$technician['id'] ?>"><?= e($technician['name']) ?> (<?= e($technician['phone'] ?? '') ?>)</option><?php endforeach; ?></select>
+      <?php if (!$technicians): ?><span class="text-xs text-slate-500">Add a technician before assigning one.</span><?php endif; ?>
+    </label>
+    <?php endif; ?>
     <label class="text-sm md:col-span-3">Note (what was done to fix it)<textarea data-n="note" rows="2" class="<?= $cls ?>"></textarea></label>
   </div>
 </template>
@@ -35,6 +44,14 @@ $companies = all_companies();
     box.querySelectorAll('.entry').forEach((el, i) => {
       el.querySelector('.num').textContent = '#' + (i + 1);
       el.querySelectorAll('[data-n]').forEach(f => f.name = 'entries[' + i + '][' + f.dataset.n + ']');
+      const required = el.querySelector('[data-n="technician_required"]');
+      if (required) {
+        const select = el.querySelector('[data-n="technician_id"]');
+        required.onchange = () => {
+          el.querySelector('.technician-select-wrap').classList.toggle('hidden', !required.checked);
+          select.required = required.checked;
+        };
+      }
     });
   }
   function add() {

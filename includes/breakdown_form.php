@@ -14,8 +14,29 @@ $cls = 'mt-1 w-full border rounded px-3 py-2';
   <label class="text-sm">Fixed by (company side)<input name="fixed_by" required maxlength="150" value="<?= e($row['fixed_by']) ?>" class="<?= $cls ?>"></label>
   <label class="text-sm">Status<select name="status" class="<?= $cls ?>">
     <?php foreach (STATUSES as $k => $l): ?><option value="<?= $k ?>" <?= $row['status'] === $k ? 'selected' : '' ?>><?= $l ?></option><?php endforeach; ?></select></label>
+  <?php if ($u['role'] === 'admin'): ?>
+  <label class="text-sm flex items-center gap-2"><input id="technician-required" type="checkbox" name="technician_required" value="1" <?= !empty($row['technician_required']) ? 'checked' : '' ?>> Technician required (for non-online issues)</label>
+  <label id="technician-select-wrap" class="text-sm <?= empty($row['technician_required']) ? 'hidden' : '' ?>">Assign technician<select id="technician-select" name="technician_id" class="<?= $cls ?>">
+    <option value="">Select a technician</option>
+    <?php foreach ($technicians as $technician): ?><option value="<?= (int)$technician['id'] ?>" <?= (int)($row['technician_id'] ?? 0) === (int)$technician['id'] ? 'selected' : '' ?>><?= e($technician['name']) ?> (<?= e($technician['phone'] ?? '') ?>)</option><?php endforeach; ?>
+  </select><?php if (!$technicians): ?><span class="text-xs text-slate-500">Add a technician before assigning one.</span><?php endif; ?></label>
+  <?php endif; ?>
   <label class="text-sm md:col-span-3">Description<textarea name="description" rows="2" class="<?= $cls ?>"><?= e($row['description']) ?></textarea></label>
   <label class="text-sm md:col-span-3">Note (what was done to fix it)<textarea name="note" rows="3" class="<?= $cls ?>"><?= e($row['note']) ?></textarea></label>
   <div class="md:col-span-3 flex gap-2"><button class="bg-slate-900 text-white rounded px-4 py-2"><?= e($submit) ?></button>
     <?php if (!empty($row['id'])): ?><button name="delete" value="1" formnovalidate onclick="return confirm('Delete this record?')" class="bg-red-600 text-white rounded px-4 py-2">Delete</button><?php endif; ?></div>
 </form>
+<?php if ($u['role'] === 'admin'): ?>
+<script>
+(function () {
+  const required = document.getElementById('technician-required');
+  const selector = document.getElementById('technician-select-wrap');
+  const technician = document.getElementById('technician-select');
+  required.addEventListener('change', () => {
+    selector.classList.toggle('hidden', !required.checked);
+    technician.required = required.checked;
+  });
+  technician.required = required.checked;
+})();
+</script>
+<?php endif; ?>

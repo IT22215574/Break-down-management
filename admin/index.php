@@ -31,8 +31,8 @@ page_header('Sectors', $u);
   <button class="bg-slate-900 text-white rounded py-2">Create sector</button>
 </form>
 
-<label class="block text-sm mb-3">Search sectors
-  <input id="sector-search" type="search" placeholder="Sector name" class="mt-1 w-full border rounded px-3 py-2">
+<label class="block text-base font-semibold mb-3">Search sectors
+  <input id="sector-search" type="search" placeholder="Sector name" class="mt-1 w-full border rounded px-3 py-2" bold="true">
 </label>
 <div class="space-y-2">
 <?php foreach ($sectors as $s): ?>

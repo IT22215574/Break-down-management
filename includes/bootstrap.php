@@ -22,6 +22,24 @@ if (!$pdo->query("SHOW COLUMNS FROM breakdowns LIKE 'company_id'")->fetch()) {
     $pdo->exec('ALTER TABLE breakdowns ADD company_id INT NULL AFTER sector_id,
         ADD FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL');
 }
+$pdo->exec('CREATE TABLE IF NOT EXISTS technicians (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(120) NOT NULL,
+    phone VARCHAR(32) NOT NULL UNIQUE,
+    active TINYINT(1) NOT NULL DEFAULT 1,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB');
+$roleColumn = $pdo->query("SHOW COLUMNS FROM users LIKE 'role'")->fetch();
+if ($roleColumn && str_contains($roleColumn['Type'], "'technician'")) {
+    $pdo->exec("UPDATE users SET role='support' WHERE role='technician'");
+    $pdo->exec("ALTER TABLE users MODIFY role ENUM('admin','support','user') NOT NULL DEFAULT 'user'");
+}
+if (!$pdo->query("SHOW COLUMNS FROM breakdowns LIKE 'technician_id'")->fetch()) {
+    $pdo->exec('ALTER TABLE breakdowns ADD technician_id INT NULL, ADD FOREIGN KEY (technician_id) REFERENCES technicians(id) ON DELETE SET NULL');
+}
+if (!$pdo->query("SHOW COLUMNS FROM breakdowns LIKE 'technician_required'")->fetch()) {
+    $pdo->exec('ALTER TABLE breakdowns ADD technician_required TINYINT(1) NOT NULL DEFAULT 0');
+}
 
 $docRoot = realpath($_SERVER['DOCUMENT_ROOT'] ?? '') ?: '';
 $appRoot = realpath(__DIR__ . '/..');
@@ -94,6 +112,11 @@ function all_companies(): array {
     return $pdo->query('SELECT * FROM companies ORDER BY name')->fetchAll();
 }
 
+function active_technicians(): array {
+    global $pdo;
+    return $pdo->query('SELECT id,name,phone FROM technicians WHERE active=1 ORDER BY name')->fetchAll();
+}
+
 function fetch_breakdowns(array $u, array $f): array {
     global $pdo;
     $ids = array_map(fn($s) => (int)$s['id'], accessible_sectors($u));
@@ -107,7 +130,7 @@ function fetch_breakdowns(array $u, array $f): array {
         $where[] = '(b.system_name LIKE ? OR c.name LIKE ? OR b.client_name LIKE ? OR b.fixed_by LIKE ? OR b.note LIKE ?)';
         $like = '%' . addcslashes($f['q'], '%_\\') . '%'; array_push($p, $like, $like, $like, $like, $like);
     }
-    $st = $pdo->prepare('SELECT b.*, s.name AS sector_name, c.name AS company_name FROM breakdowns b JOIN sectors s ON s.id=b.sector_id LEFT JOIN companies c ON c.id=b.company_id WHERE '
+    $st = $pdo->prepare('SELECT b.*, s.name AS sector_name, c.name AS company_name, t.name AS technician_name FROM breakdowns b JOIN sectors s ON s.id=b.sector_id LEFT JOIN companies c ON c.id=b.company_id LEFT JOIN technicians t ON t.id=b.technician_id WHERE '
         . implode(' AND ', $where) . ' ORDER BY b.occurred_at DESC, b.id DESC');
     $st->execute($p);
     return $st->fetchAll();
@@ -124,7 +147,7 @@ function page_header(string $title, ?array $u = null): void {
     $f = flash();
     $nav = [];
     if ($u) {
-        if ($u['role'] === 'admin') $nav = ['admin/index.php' => 'Sectors', 'admin/companies.php' => 'Company', 'admin/users.php' => 'Users', 'admin/records.php' => 'Breakdowns'];
+        if ($u['role'] === 'admin') $nav = ['admin/index.php' => 'Sectors', 'admin/companies.php' => 'Company', 'admin/users.php' => 'Users', 'admin/technicians.php' => 'Technicians', 'admin/records.php' => 'Breakdowns'];
         if ($u['role'] === 'support') $nav = ['support/index.php' => 'My sectors'];
         if ($u['role'] === 'user') $nav = ['user/index.php' => 'Breakdowns'];
     }
@@ -136,12 +159,31 @@ function page_header(string $title, ?array $u = null): void {
 <?php if ($u): ?>
 <header class="bg-slate-900 text-white print:hidden"><div class="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center gap-4">
   <a href="<?= url(home_for($u['role'])) ?>" class="font-bold text-lg">⚙ Breakdown Management</a>
-  <nav class="flex gap-3 text-sm flex-1">
-    <?php foreach ($nav as $href => $label): ?><a class="hover:underline" href="<?= url($href) ?>"><?= e($label) ?></a><?php endforeach; ?>
-  </nav>
-  <span class="text-sm text-slate-300"><?= e($u['name']) ?> (<?= e($u['role']) ?>)</span>
-  <a href="<?= url('logout.php') ?>" class="text-sm bg-slate-700 hover:bg-slate-600 rounded px-3 py-1">Logout</a>
+  <button id="nav-toggle" type="button" class="ml-auto rounded p-2 hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-white md:hidden" aria-controls="primary-navigation" aria-expanded="false">
+    <span class="sr-only">Toggle navigation</span>
+    <svg aria-hidden="true" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+    </svg>
+  </button>
+  <div id="primary-navigation" class="hidden w-full flex-col gap-3 border-t border-slate-700 pt-3 md:flex md:w-auto md:flex-1 md:flex-row md:items-center md:border-0 md:pt-0">
+    <nav class="flex flex-col gap-3 text-sm md:flex-1 md:flex-row">
+      <?php foreach ($nav as $href => $label): ?><a class="hover:underline" href="<?= url($href) ?>"><?= e($label) ?></a><?php endforeach; ?>
+    </nav>
+    <span class="text-sm text-slate-300"><?= e($u['name']) ?> (<?= e($u['role']) ?>)</span>
+    <a href="<?= url('logout.php') ?>" class="w-fit text-sm bg-slate-700 hover:bg-slate-600 rounded px-3 py-1">Logout</a>
+  </div>
 </div></header>
+<script>
+(function () {
+  const toggle = document.getElementById('nav-toggle');
+  const navigation = document.getElementById('primary-navigation');
+  toggle.addEventListener('click', () => {
+    const isExpanded = toggle.getAttribute('aria-expanded') === 'true';
+    toggle.setAttribute('aria-expanded', String(!isExpanded));
+    navigation.classList.toggle('hidden', isExpanded);
+  });
+})();
+</script>
 <?php endif; ?>
 <main class="max-w-6xl mx-auto px-4 py-6">
 <?php if ($f): ?><div class="mb-4 rounded px-4 py-3 text-sm <?= $f[1] === 'error' ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800' ?>"><?= e($f[0]) ?></div><?php endif;
@@ -220,15 +262,17 @@ function records_table(array $rows, bool $actions = false): void { ?>
 <div class="bg-white rounded shadow overflow-x-auto"><table class="w-full text-sm">
 <thead class="bg-slate-50 text-left text-xs uppercase text-slate-500"><tr>
   <th class="p-3">Date &amp; time</th><th class="p-3">Sector</th><th class="p-3">Company</th><th class="p-3">System</th><th class="p-3">Client</th>
-  <th class="p-3">Fixed by</th><th class="p-3">Status</th><th class="p-3">Note</th><?php if ($actions): ?><th class="p-3"></th><?php endif; ?></tr></thead><tbody>
+  <th class="p-3">Fixed by</th><th class="p-3">Status</th><th class="p-3">Technician</th><th class="p-3">Note</th><?php if ($actions): ?><th class="p-3"></th><?php endif; ?></tr></thead><tbody>
 <?php foreach ($rows as $r): ?><tr class="border-t align-top">
   <td class="p-3 whitespace-nowrap"><?= e(date('Y-m-d H:i', strtotime($r['occurred_at']))) ?></td>
   <td class="p-3"><?= e($r['sector_name']) ?></td><td class="p-3"><?= e($r['company_name'] ?? '') ?></td>
   <td class="p-3"><div class="font-medium"><?= e($r['system_name']) ?></div><div class="text-slate-500"><?= nl2br(e($r['description'])) ?></div></td>
   <td class="p-3"><?= e($r['client_name']) ?></td><td class="p-3"><?= e($r['fixed_by']) ?></td>
-  <td class="p-3"><?= status_badge($r['status']) ?></td><td class="p-3"><?= nl2br(e($r['note'])) ?></td>
+  <td class="p-3"><?= status_badge($r['status']) ?></td>
+  <td class="p-3"><?= !empty($r['technician_required']) ? e($r['technician_name'] ?? 'Not assigned') : '—' ?></td>
+  <td class="p-3"><?= nl2br(e($r['note'])) ?></td>
   <?php if ($actions): ?><td class="p-3 whitespace-nowrap"><a class="text-blue-600" href="<?= url('support/edit.php?id=' . $r['id']) ?>">Edit</a></td><?php endif; ?>
-</tr><?php endforeach; if (!$rows): ?><tr><td colspan="9" class="p-6 text-center text-slate-500">No breakdowns found.</td></tr><?php endif; ?>
+</tr><?php endforeach; if (!$rows): ?><tr><td colspan="<?= $actions ? 10 : 9 ?>" class="p-6 text-center text-slate-500">No breakdowns found.</td></tr><?php endif; ?>
 </tbody></table></div>
 <?php }
 
@@ -239,7 +283,7 @@ function records_cards(array $rows): void { ?>
   <a href="<?= url('breakdown.php?id=' . (int)$r['id']) ?>" class="flex flex-wrap items-center justify-between gap-3 bg-white rounded shadow px-4 py-3 hover:bg-slate-50">
     <div class="min-w-0">
       <div class="font-semibold truncate"><?= e($r['system_name']) ?></div>
-      <div class="text-sm text-slate-500 truncate"><?= e($r['sector_name']) ?> &middot; <?= e($r['company_name'] ?? 'No company') ?> &middot; <?= e(date('Y-m-d H:i', strtotime($r['occurred_at']))) ?></div>
+      <div class="text-sm text-slate-500 truncate"><?= e($r['sector_name']) ?> &middot; <?= e($r['company_name'] ?? 'No company') ?> &middot; <?= e(date('Y-m-d H:i', strtotime($r['occurred_at']))) ?><?php if (!empty($r['technician_required'])): ?> &middot; Technician: <?= e($r['technician_name'] ?? 'Not assigned') ?><?php endif; ?></div>
     </div>
     <div class="text-sm text-slate-500">Client: <?= e($r['client_name']) ?> &middot; Fixed by: <?= e($r['fixed_by']) ?></div>
     <div><?= status_badge($r['status']) ?> <span class="text-slate-400">&rsaquo;</span></div>

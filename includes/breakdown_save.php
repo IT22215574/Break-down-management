@@ -5,6 +5,13 @@ function company_exists(int $id): bool {
     return (bool)$st->fetchColumn();
 }
 
+function active_technician_exists(int $id): bool {
+    global $pdo;
+    $st = $pdo->prepare('SELECT 1 FROM technicians WHERE id=? AND active=1');
+    $st->execute([$id]);
+    return (bool)$st->fetchColumn();
+}
+
 // Validates POST data; returns [data|null, error|null].
 function read_breakdown_post(array $u): array {
     $d = [];
@@ -12,6 +19,14 @@ function read_breakdown_post(array $u): array {
     $d['sector_id'] = (int)($_POST['sector_id'] ?? 0);
     $d['company_id'] = (int)($_POST['company_id'] ?? 0) ?: null;
     $d['status'] = $_POST['status'] ?? '';
+    if ($u['role'] === 'admin') {
+        $d['technician_required'] = !empty($_POST['technician_required']) ? 1 : 0;
+        $d['technician_id'] = (int)($_POST['technician_id'] ?? 0) ?: null;
+        if ($d['technician_required'] && (!$d['technician_id'] || !active_technician_exists($d['technician_id']))) {
+            return [null, 'Select an active technician when a technician is required.'];
+        }
+        if (!$d['technician_required']) $d['technician_id'] = null;
+    }
     $t = DateTime::createFromFormat('Y-m-d\TH:i', (string)($_POST['occurred_at'] ?? ''));
     if (!$t) return [null, 'Enter a valid date and time.'];
     $d['occurred_at'] = $t->format('Y-m-d H:i:s');
@@ -37,6 +52,17 @@ function handle_breakdown_create(array $u, string $back): void {
         $r['status'] = $e['status'] ?? 'fixed';
         $r['company_id'] = (int)($e['company_id'] ?? 0) ?: null;
         if (!$r['company_id'] && $r['system_name'] === '' && $r['client_name'] === '' && $r['fixed_by'] === '' && $r['note'] === '') continue;
+        if ($u['role'] === 'admin') {
+            $r['technician_required'] = !empty($e['technician_required']) ? 1 : 0;
+            $r['technician_id'] = (int)($e['technician_id'] ?? 0) ?: null;
+            if ($r['technician_required'] && (!$r['technician_id'] || !active_technician_exists($r['technician_id']))) {
+                flash('Form #' . ((int)$i + 1) . ': select an active technician when one is required.', 'error'); redirect($back);
+            }
+            if (!$r['technician_required']) $r['technician_id'] = null;
+        } else {
+            $r['technician_required'] = 0;
+            $r['technician_id'] = null;
+        }
         $t = DateTime::createFromFormat('Y-m-d\TH:i', (string)($e['occurred_at'] ?? ''));
         if (!$r['company_id'] && $hasCompanies) $t = false;
         if (!$t || $r['system_name'] === '' || $r['client_name'] === '' || $r['fixed_by'] === '' || !isset(STATUSES[$r['status']])
@@ -48,9 +74,9 @@ function handle_breakdown_create(array $u, string $back): void {
     }
     if (!$rows) { flash('Fill in at least one form.', 'error'); redirect($back); }
     $pdo->beginTransaction();
-    $ins = $pdo->prepare('INSERT INTO breakdowns (sector_id,company_id,system_name,description,occurred_at,fixed_by,client_name,status,note,created_by)
-        VALUES (?,?,?,?,?,?,?,?,?,?)');
-    foreach ($rows as $r) $ins->execute([$sid, $r['company_id'], $r['system_name'], '', $r['occurred_at'], $r['fixed_by'], $r['client_name'], $r['status'], $r['note'], $u['id']]);
+    $ins = $pdo->prepare('INSERT INTO breakdowns (sector_id,company_id,system_name,description,occurred_at,fixed_by,client_name,status,note,created_by,technician_id,technician_required)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');
+    foreach ($rows as $r) $ins->execute([$sid, $r['company_id'], $r['system_name'], '', $r['occurred_at'], $r['fixed_by'], $r['client_name'], $r['status'], $r['note'], $u['id'], $r['technician_id'], $r['technician_required']]);
     $pdo->commit();
     flash(count($rows) . ' breakdown record(s) saved.');
     redirect($back);
