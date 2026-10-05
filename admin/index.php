@@ -7,13 +7,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $name = trim($_POST['name'] ?? '');
     $phone = trim($_POST['phone'] ?? '');
     $email = trim($_POST['email'] ?? '');
+    $address = trim($_POST['address'] ?? '');
     try {
-        if ($action === 'create' && $name !== '' && preg_match('/^[0-9]{10}$/', $phone) && filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            $pdo->prepare('INSERT INTO sectors (name,phone,email,description,created_by) VALUES (?,?,?,?,?)')
-                ->execute([$name, $phone, $email, trim($_POST['description'] ?? ''), $u['id']]);
+        if ($action === 'create' && $name !== '' && preg_match('/^[0-9]{10}$/', $phone) && filter_var($email, FILTER_VALIDATE_EMAIL) && $address !== '' && mb_strlen($address) <= 255) {
+            $pdo->prepare('INSERT INTO sectors (name,phone,email,address,description,created_by) VALUES (?,?,?,?,?,?)')
+                ->execute([$name, $phone, $email, $address, trim($_POST['description'] ?? ''), $u['id']]);
             flash('Sector created.');
         } else {
-            flash('Enter a sector name, a 10-digit phone number, and a valid email address.', 'error');
+            flash('Enter a sector name, a 10-digit phone number, and a valid email address, and an address.', 'error');
         }
     } catch (PDOException $e) {
         flash($e->getCode() === '23000' ? 'A sector with that name already exists.' : 'Database error.', 'error');
@@ -33,6 +34,7 @@ page_header('Sectors', $u);
   <label class="text-sm">Sector name<input name="name" required maxlength="150" class="mt-1 w-full border rounded px-3 py-2"></label>
   <label class="text-sm">Phone number<input type="tel" name="phone" required minlength="10" maxlength="10" pattern="[0-9]{10}" inputmode="numeric" class="sector-phone mt-1 w-full border rounded px-3 py-2"></label>
   <label class="text-sm">Email address<input type="email" name="email" required maxlength="190" class="mt-1 w-full border rounded px-3 py-2"></label>
+  <label class="text-sm">Address<input name="address" required maxlength="255" class="mt-1 w-full border rounded px-3 py-2"></label>
   <label class="text-sm md:col-span-2">Description<input name="description" class="mt-1 w-full border rounded px-3 py-2"></label>
   <button class="bg-slate-900 text-white rounded py-2">Create sector</button>
 </form>

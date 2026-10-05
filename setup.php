@@ -7,7 +7,7 @@ $pdo->exec("CREATE DATABASE IF NOT EXISTS `{$c['db_name']}` CHARACTER SET utf8mb
 $pdo->exec("USE `{$c['db_name']}`");
 foreach (array_filter(array_map('trim', explode(';', file_get_contents(__DIR__ . '/schema.sql')))) as $sql) $pdo->exec($sql);
 $sectorColumns = $pdo->query('SHOW COLUMNS FROM sectors')->fetchAll(PDO::FETCH_COLUMN);
-foreach (['phone' => 'VARCHAR(32) NULL', 'email' => 'VARCHAR(190) NULL'] as $column => $definition) {
+foreach (['phone' => 'VARCHAR(32) NULL', 'email' => 'VARCHAR(190) NULL', 'address' => 'VARCHAR(255) NULL'] as $column => $definition) {
     if (!in_array($column, $sectorColumns, true)) {
         $pdo->exec("ALTER TABLE sectors ADD COLUMN {$column} {$definition}");
     }
