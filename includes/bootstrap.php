@@ -166,21 +166,37 @@ function render_records(array $u, string $action): void {
         $q = trim((string)($_GET['q'] ?? ''));
         $counts = [];
         foreach ($pdo->query('SELECT sector_id, COUNT(*) c FROM breakdowns GROUP BY sector_id') as $r) $counts[$r['sector_id']] = $r['c'];
-        if ($q !== '') $sectors = array_filter($sectors, fn($s) => stripos($s['name'], $q) !== false);
         ?>
-<form method="get" action="<?= e($action) ?>" class="bg-white rounded shadow p-4 mb-4 flex gap-3 items-end">
-  <label class="text-xs flex-1">Search sector by name<input name="q" value="<?= e($q) ?>" placeholder="Sector name" class="<?= $cls ?> w-full"></label>
-  <button class="bg-slate-800 text-white rounded px-3 py-1.5 text-sm">Search</button>
-</form>
+<div class="bg-white rounded shadow p-4 mb-4">
+  <label class="text-xs">Search sector by name<input id="sector-search" value="<?= e($q) ?>" placeholder="Sector name" class="<?= $cls ?> w-full"></label>
+</div>
 <div class="space-y-2">
 <?php foreach ($sectors as $s): ?>
-  <a href="<?= e($action . '?sector=' . (int)$s['id']) ?>" class="flex items-center justify-between gap-4 bg-white rounded shadow px-4 py-3 hover:bg-slate-50">
+  <a data-sector-name="<?= e($s['name']) ?>" href="<?= e($action . '?sector=' . (int)$s['id']) ?>" class="flex items-center justify-between gap-4 bg-white rounded shadow px-4 py-3 hover:bg-slate-50">
     <div class="min-w-0"><div class="font-semibold truncate"><?= e($s['name']) ?></div>
       <div class="text-sm text-slate-500 truncate"><?= e($s['description'] ?? '') ?></div></div>
     <div class="text-xs text-slate-500 whitespace-nowrap"><?= (int)($counts[$s['id']] ?? 0) ?> record(s) &rsaquo;</div>
   </a>
-<?php endforeach; if (!$sectors): ?><p class="text-slate-500">No sectors found.</p><?php endif; ?>
+<?php endforeach; ?>
+  <p id="sector-search-empty" class="hidden text-slate-500">No sectors found.</p>
 </div>
+<script>
+  const sectorSearch = document.getElementById('sector-search');
+  const sectorCards = document.querySelectorAll('[data-sector-name]');
+  const sectorSearchEmpty = document.getElementById('sector-search-empty');
+  const filterSectors = () => {
+    const query = sectorSearch.value.trim().toLocaleLowerCase();
+    let visibleCount = 0;
+    sectorCards.forEach(card => {
+      const matches = card.dataset.sectorName.toLocaleLowerCase().includes(query);
+      card.classList.toggle('hidden', !matches);
+      if (matches) visibleCount++;
+    });
+    sectorSearchEmpty.classList.toggle('hidden', visibleCount > 0);
+  };
+  sectorSearch.addEventListener('input', filterSectors);
+  filterSectors();
+</script>
 <?php   return;
     }
 
