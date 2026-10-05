@@ -4,7 +4,7 @@ $cls = 'mt-1 w-full border rounded px-3 py-2';
 $clientName = person_name_parts((string)$row['client_name']);
 $fixedByName = person_name_parts((string)$row['fixed_by']);
 ?>
-<form method="post" class="bg-white rounded shadow p-4 mb-6 grid md:grid-cols-3 gap-3"><?= csrf_field() ?>
+<form method="post" class="bg-white rounded shadow p-4 mb-6 grid md:grid-cols-3 gap-3" data-edit-lock="breakdown" data-edit-lock-id="<?= (int)$row['id'] ?>" data-edit-lock-on-load="true"><?= csrf_field() ?>
   <h2 class="md:col-span-3 font-semibold"><?= e($heading) ?></h2>
   <label class="text-sm">Sector<select name="sector_id" class="<?= $cls ?>">
     <?php foreach ($sectors as $s): ?><option value="<?= $s['id'] ?>" <?= $row['sector_id'] == $s['id'] ? 'selected' : '' ?>><?= e($s['name']) ?></option><?php endforeach; ?></select></label>

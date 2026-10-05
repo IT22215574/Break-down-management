@@ -11,14 +11,18 @@ $back = ['admin' => 'admin/records.php', 'support' => 'support/records.php', 'us
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canEdit) {
     if (!empty($_POST['delete'])) {
+        require_edit_lock('breakdown', $id, 'breakdown.php?id=' . $id);
         $pdo->prepare('DELETE FROM breakdowns WHERE id=?')->execute([$id]);
+        release_edit_lock('breakdown', $id, (string)$_POST['edit_lock_token']);
         flash('Record deleted.'); redirect($back);
     }
+    require_edit_lock('breakdown', $id, 'breakdown.php?id=' . $id);
     [$d, $err] = read_breakdown_post($u);
     if ($err) { flash($err, 'error'); redirect('breakdown.php?id=' . $id); }
     $technicianFields = $u['role'] === 'admin' ? ',technician_id=:technician_id,technician_required=:technician_required' : '';
     $pdo->prepare('UPDATE breakdowns SET sector_id=:sector_id,company_id=:company_id,system_name=:system_name,description=:description,occurred_at=:occurred_at,
         fixed_by=:fixed_by,client_name=:client_name,status=:status,note=:note' . $technicianFields . ' WHERE id=:id')->execute($d + ['id' => $id]);
+    release_edit_lock('breakdown', $id, (string)$_POST['edit_lock_token']);
     flash('Changes saved.'); redirect('breakdown.php?id=' . $id);
 }
 

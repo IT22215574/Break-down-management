@@ -18,11 +18,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } catch (PDOException $e) { flash('That email is already registered.', 'error'); }
         }
     } elseif ($action === 'toggle' && (int)$_POST['id'] !== $u['id']) {
-        $pdo->prepare('UPDATE users SET active = 1 - active WHERE id=?')->execute([(int)$_POST['id']]);
+        $id = (int)$_POST['id'];
+        require_edit_lock('user', $id, 'admin/users.php');
+        $pdo->prepare('UPDATE users SET active = 1 - active WHERE id=?')->execute([$id]);
+        release_edit_lock('user', $id, (string)$_POST['edit_lock_token']);
         flash('User updated.');
     } elseif ($action === 'password' && strlen($_POST['password'] ?? '') >= 8) {
+        $id = (int)$_POST['id'];
+        require_edit_lock('user', $id, 'admin/users.php');
         $pdo->prepare('UPDATE users SET password_hash=? WHERE id=?')
-            ->execute([password_hash($_POST['password'], PASSWORD_DEFAULT), (int)$_POST['id']]);
+            ->execute([password_hash($_POST['password'], PASSWORD_DEFAULT), $id]);
+        release_edit_lock('user', $id, (string)$_POST['edit_lock_token']);
         flash('Password changed.');
     } else flash('Action not allowed or password too short (8+).', 'error');
     redirect('admin/users.php');
@@ -47,9 +53,9 @@ page_header('Users', $u);
   <td class="p-3"><?= e($r['name']) ?></td><td class="p-3"><?= e($r['email']) ?></td><td class="p-3"><?= e($r['role']) ?></td>
   <td class="p-3"><?= $r['active'] ? 'Active' : 'Disabled' ?></td>
   <td class="p-3"><div class="flex gap-2 items-center">
-    <form method="post" class="flex gap-1"><?= csrf_field() ?><input type="hidden" name="action" value="password"><input type="hidden" name="id" value="<?= $r['id'] ?>">
+    <form method="post" class="flex gap-1" data-edit-lock="user" data-edit-lock-id="<?= (int)$r['id'] ?>"><?= csrf_field() ?><input type="hidden" name="action" value="password"><input type="hidden" name="id" value="<?= $r['id'] ?>">
       <input type="password" name="password" minlength="8" placeholder="New password" class="border rounded px-2 py-1 text-xs"><button class="text-blue-600 text-xs">Set</button></form>
-    <?php if ($r['id'] != $u['id']): ?><form method="post"><?= csrf_field() ?><input type="hidden" name="action" value="toggle"><input type="hidden" name="id" value="<?= $r['id'] ?>">
+    <?php if ($r['id'] != $u['id']): ?><form method="post" data-edit-lock="user" data-edit-lock-id="<?= (int)$r['id'] ?>"><?= csrf_field() ?><input type="hidden" name="action" value="toggle"><input type="hidden" name="id" value="<?= $r['id'] ?>">
       <button class="text-xs text-red-600"><?= $r['active'] ? 'Disable' : 'Enable' ?></button></form><?php endif; ?>
   </div></td></tr><?php endforeach; ?></tbody></table></div>
 <?php page_footer();

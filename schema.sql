@@ -63,3 +63,14 @@ CREATE TABLE IF NOT EXISTS breakdowns (
   FOREIGN KEY (technician_id) REFERENCES technicians(id) ON DELETE SET NULL,
   FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS edit_locks (
+  resource_type VARCHAR(32) NOT NULL,
+  resource_id INT NOT NULL,
+  owner_session VARCHAR(128) NOT NULL,
+  owner_name VARCHAR(120) NOT NULL,
+  token CHAR(64) NOT NULL,
+  expires_at DATETIME NOT NULL,
+  PRIMARY KEY (resource_type, resource_id),
+  INDEX (expires_at)
+) ENGINE=InnoDB;

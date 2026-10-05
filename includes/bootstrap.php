@@ -40,6 +40,16 @@ if (!$pdo->query("SHOW COLUMNS FROM breakdowns LIKE 'technician_id'")->fetch()) 
 if (!$pdo->query("SHOW COLUMNS FROM breakdowns LIKE 'technician_required'")->fetch()) {
     $pdo->exec('ALTER TABLE breakdowns ADD technician_required TINYINT(1) NOT NULL DEFAULT 0');
 }
+$pdo->exec('CREATE TABLE IF NOT EXISTS edit_locks (
+    resource_type VARCHAR(32) NOT NULL,
+    resource_id INT NOT NULL,
+    owner_session VARCHAR(128) NOT NULL,
+    owner_name VARCHAR(120) NOT NULL,
+    token CHAR(64) NOT NULL,
+    expires_at DATETIME NOT NULL,
+    PRIMARY KEY (resource_type, resource_id),
+    INDEX (expires_at)
+) ENGINE=InnoDB');
 
 $docRoot = realpath($_SERVER['DOCUMENT_ROOT'] ?? '') ?: '';
 $appRoot = realpath(__DIR__ . '/..');
@@ -85,6 +95,35 @@ function csrf_check(): void {
     if ($_SERVER['REQUEST_METHOD'] === 'POST' &&
         !hash_equals($_SESSION['csrf'] ?? '', $_POST['csrf'] ?? '')) {
         http_response_code(419); exit('Invalid CSRF token.');
+    }
+}
+
+function has_edit_lock(string $type, int $id, string $token): bool {
+    global $pdo;
+    if (!preg_match('/^[a-f0-9]{64}$/', $token)) return false;
+    $st = $pdo->prepare('SELECT 1 FROM edit_locks WHERE resource_type=? AND resource_id=? AND owner_session=? AND token=? AND expires_at > NOW()');
+    $st->execute([$type, $id, session_id(), $token]);
+    return (bool)$st->fetchColumn();
+}
+
+function release_edit_lock(string $type, int $id, string $token): void {
+    global $pdo;
+    if (!preg_match('/^[a-f0-9]{64}$/', $token)) return;
+    $st = $pdo->prepare('DELETE FROM edit_locks WHERE resource_type=? AND resource_id=? AND owner_session=? AND token=?');
+    $st->execute([$type, $id, session_id(), $token]);
+    if ($pdo->inTransaction()) $pdo->commit();
+}
+
+function require_edit_lock(string $type, int $id, string $returnTo): void {
+    global $pdo;
+    $token = (string)($_POST['edit_lock_token'] ?? '');
+    $pdo->beginTransaction();
+    $st = $pdo->prepare('SELECT 1 FROM edit_locks WHERE resource_type=? AND resource_id=? AND owner_session=? AND token=? AND expires_at > NOW() FOR UPDATE');
+    $st->execute([$type, $id, session_id(), $token]);
+    if (!$st->fetchColumn()) {
+        $pdo->rollBack();
+        flash('This item is being edited by someone else or your edit session expired. Reload the page before trying again.', 'error');
+        redirect($returnTo);
     }
 }
 
@@ -216,7 +255,198 @@ function page_header(string $title, ?array $u = null): void {
 <main class="max-w-6xl mx-auto px-4 py-6">
 <?php if ($f): ?><div class="mb-4 rounded px-4 py-3 text-sm <?= $f[1] === 'error' ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800' ?>"><?= e($f[0]) ?></div><?php endif;
 }
-function page_footer(): void { echo '</main></body></html>'; }
+function page_footer(): void {
+    ?>
+</main>
+<script>
+(function () {
+  const endpoint = <?= json_encode(url('includes/edit_lock.php')) ?>;
+  const csrf = <?= json_encode(csrf_token()) ?>;
+  const controlsByForm = new WeakMap();
+  const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+  async function request(action, form, token) {
+    const body = new URLSearchParams({
+      csrf,
+      action,
+      type: form.dataset.editLock,
+      id: form.dataset.editLockId,
+      token
+    });
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      const error = new Error(result.error || 'Could not coordinate this edit.');
+      error.fatal = response.status >= 400 && response.status < 500;
+      throw error;
+    }
+    return result;
+  }
+
+  function lockKey(form) {
+    return form.dataset.editLock + ':' + form.dataset.editLockId;
+  }
+
+  function setDisabled(form, disabled) {
+    if (disabled && !controlsByForm.has(form)) {
+      controlsByForm.set(form, Array.from(form.elements).map(control => [control, control.disabled]));
+    }
+    const controls = controlsByForm.get(form);
+    if (!controls) return;
+    controls.forEach(([control, wasDisabled]) => { control.disabled = disabled || wasDisabled; });
+    if (!disabled) controlsByForm.delete(form);
+  }
+
+  function statusNode(form) {
+    const row = form.closest('tr');
+    let node = (row || form).querySelector('[data-edit-lock-status]');
+    if (!node) {
+      node = document.createElement('p');
+      node.dataset.editLockStatus = '';
+      node.className = 'mb-3 rounded bg-amber-100 px-3 py-2 text-sm text-amber-900';
+      node.setAttribute('role', 'status');
+      if (row) row.querySelector('td')?.prepend(node);
+      else form.prepend(node);
+    }
+    return node;
+  }
+
+  async function acquire(form) {
+    if (form.dataset.lockToken) return form.dataset.lockToken;
+    if (form.dataset.lockPromise) return form.lockPromise;
+    const token = Array.from(crypto.getRandomValues(new Uint8Array(32)), byte => byte.toString(16).padStart(2, '0')).join('');
+    form.dataset.lockPromise = 'pending';
+    form.lockPromise = (async () => {
+      setDisabled(form, true);
+      const status = statusNode(form);
+      status.textContent = 'Waiting to edit this item...';
+      let waited = false;
+      while (true) {
+        try {
+          const result = await request('acquire', form, token);
+          if (result.acquired) {
+            form.dataset.lockToken = result.token;
+            const refreshKey = 'edit-lock-refresh:' + lockKey(form);
+            if (waited) {
+              sessionStorage.setItem(refreshKey, '1');
+              form.dataset.lockReloading = '1';
+              status.textContent = 'The item was updated by another user. Reloading the latest version...';
+              window.location.reload();
+              return result.token;
+            }
+            const refreshed = sessionStorage.getItem(refreshKey) === '1';
+            sessionStorage.removeItem(refreshKey);
+            status.textContent = refreshed
+              ? 'The latest saved version is loaded. You can now make changes.'
+              : 'You are editing this item. Other users will wait until you save or leave.';
+            status.className = 'mb-3 rounded bg-blue-100 px-3 py-2 text-sm text-blue-900';
+            setDisabled(form, false);
+            return result.token;
+          }
+          waited = true;
+          status.textContent = 'This item is being edited by ' + result.owner + '. Waiting for it to be saved...';
+        } catch (error) {
+          if (error.fatal) {
+            status.textContent = error.message;
+            return null;
+          }
+          status.textContent = error.message + ' Retrying...';
+        }
+        await sleep(2000);
+      }
+    })().finally(() => {
+      delete form.dataset.lockPromise;
+      delete form.lockPromise;
+    });
+    return form.lockPromise;
+  }
+
+  async function release(form) {
+    if (!form.dataset.lockToken) return;
+    const token = form.dataset.lockToken;
+    delete form.dataset.lockToken;
+    try {
+      await request('release', form, token);
+    } catch (error) {
+      console.error('Could not release edit lock:', error);
+    }
+  }
+
+  window.EditLocks = {acquire, release};
+  const forms = Array.from(document.querySelectorAll('form[data-edit-lock]'));
+  forms.forEach(form => {
+    const refreshKey = 'edit-lock-refresh:' + lockKey(form);
+    if (form.dataset.editLockOnLoad !== 'true' && sessionStorage.getItem(refreshKey) === '1') {
+      sessionStorage.removeItem(refreshKey);
+      statusNode(form).textContent = 'Another user saved this item while you were waiting. The latest data is loaded; review it and retry your action if needed.';
+    }
+  });
+  forms.forEach(form => {
+    form.addEventListener('focusin', () => {
+      if (!form.dataset.lockToken) acquire(form);
+    });
+    form.addEventListener('submit', async event => {
+      if (form.dataset.lockSubmitting === '1' || event.defaultPrevented) return;
+      event.preventDefault();
+      const submitter = event.submitter;
+      if (!await acquire(form)) return;
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = 'edit_lock_token';
+      input.value = form.dataset.lockToken;
+      form.append(input);
+      form.dataset.lockSubmitting = '1';
+      if (submitter && submitter.name && submitter.value) {
+        const buttonValue = document.createElement('input');
+        buttonValue.type = 'hidden';
+        buttonValue.name = submitter.name;
+        buttonValue.value = submitter.value;
+        form.append(buttonValue);
+      }
+      form.submit();
+    });
+    if (form.dataset.editLockOnLoad === 'true') acquire(form);
+  });
+
+  window.setInterval(() => {
+    forms.forEach(async form => {
+      if (!form.dataset.lockToken || form.dataset.lockReloading === '1') return;
+      try {
+        const result = await request('heartbeat', form, form.dataset.lockToken);
+        if (!result.renewed) {
+          delete form.dataset.lockToken;
+          setDisabled(form, true);
+          statusNode(form).textContent = 'Your edit lock expired. Waiting to reacquire it...';
+          acquire(form);
+        }
+      } catch (error) {
+        statusNode(form).textContent = error.message + ' Retrying the edit lock...';
+      }
+    });
+  }, 15000);
+
+  window.addEventListener('pagehide', () => {
+    forms.forEach(form => {
+      if (!form.dataset.lockToken || form.dataset.lockSubmitting === '1' || form.dataset.lockReloading === '1') return;
+      const body = new URLSearchParams({
+        csrf,
+        action: 'release',
+        type: form.dataset.editLock,
+        id: form.dataset.editLockId,
+        token: form.dataset.lockToken
+      });
+      navigator.sendBeacon(endpoint, new Blob([body], {type: 'application/x-www-form-urlencoded'}));
+    });
+  });
+})();
+</script>
+</body></html>
+    <?php
+}
 
 function status_badge(string $s): string {
     $c = ['open' => 'bg-red-100 text-red-700', 'in_progress' => 'bg-yellow-100 text-yellow-800', 'fixed' => 'bg-green-100 text-green-700'][$s] ?? '';

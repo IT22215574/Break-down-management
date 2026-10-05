@@ -12,6 +12,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     try {
         if ($action === 'update') {
+            require_edit_lock('sector', $id, 'admin/sector.php?id=' . $id);
             $name = trim($_POST['name'] ?? '');
             $phone = trim($_POST['phone'] ?? '');
             $email = trim($_POST['email'] ?? '');
@@ -24,14 +25,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare('DELETE FROM sector_user WHERE sector_id=?')->execute([$id]);
             $ins = $pdo->prepare('INSERT IGNORE INTO sector_user (sector_id,user_id) VALUES (?,?)');
             foreach ((array)($_POST['members'] ?? []) as $uid) $ins->execute([$id, (int)$uid]);
+            release_edit_lock('sector', $id, (string)$_POST['edit_lock_token']);
             flash('Sector updated.');
             redirect('admin/sector.php?id=' . $id);
         } elseif ($action === 'delete') {
+            require_edit_lock('sector', $id, 'admin/sector.php?id=' . $id);
             $pdo->prepare('DELETE FROM sectors WHERE id=?')->execute([$id]);
+            release_edit_lock('sector', $id, (string)$_POST['edit_lock_token']);
             flash('Sector deleted.');
             redirect('admin/index.php');
         }
     } catch (PDOException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
         flash($e->getCode() === '23000' ? 'A sector with that name already exists.' : 'Database error.', 'error');
         redirect('admin/sector.php?id=' . $id);
     }
@@ -46,7 +51,7 @@ page_header($s['name'], $u);
 ?>
 <a href="index.php" class="text-sm text-blue-600">&larr; Back to sectors</a>
 <h1 class="text-2xl font-bold my-4"><?= e($s['name']) ?></h1>
-<form method="post" class="bg-white rounded shadow p-4"><?= csrf_field() ?><input type="hidden" name="id" value="<?= $id ?>">
+<form method="post" class="bg-white rounded shadow p-4" data-edit-lock="sector" data-edit-lock-id="<?= $id ?>" data-edit-lock-on-load="true"><?= csrf_field() ?><input type="hidden" name="id" value="<?= $id ?>">
   <div class="grid md:grid-cols-2 gap-3">
     <label class="text-sm">Name<input name="name" required maxlength="150" value="<?= e($s['name']) ?>" class="mt-1 w-full border rounded px-3 py-2"></label>
     <label class="text-sm">Phone number<input type="tel" name="phone" required minlength="10" maxlength="10" pattern="[0-9]{10}" inputmode="numeric" value="<?= e($s['phone'] ?? '') ?>" class="sector-phone mt-1 w-full border rounded px-3 py-2"></label>

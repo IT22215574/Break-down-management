@@ -8,3 +8,5 @@ Roles (all log in with email + password):
 - **Admin** – creates sectors, creates users, assigns IT support/users to sectors, views all records.
 - **IT support** – records breakdowns (date/time, system, client, fixed by, status, note) in their assigned sectors.
 - **User** – view-only for assigned sectors; download CSV or printable/PDF report.
+
+When someone is editing an existing sector, company, user, technician, or breakdown, another user who tries to edit that same item waits until it is saved or the first editor leaves. If an editor closes unexpectedly, the lock expires automatically after 45 seconds.
