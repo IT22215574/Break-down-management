@@ -1,0 +1,44 @@
+CREATE TABLE IF NOT EXISTS users (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(120) NOT NULL,
+  email VARCHAR(190) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+  role ENUM('admin','support','user') NOT NULL DEFAULT 'user',
+  active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS sectors (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(150) NOT NULL UNIQUE,
+  description TEXT NULL,
+  created_by INT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS sector_user (
+  sector_id INT NOT NULL,
+  user_id INT NOT NULL,
+  PRIMARY KEY (sector_id, user_id),
+  FOREIGN KEY (sector_id) REFERENCES sectors(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS breakdowns (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  sector_id INT NOT NULL,
+  system_name VARCHAR(190) NOT NULL,
+  description TEXT NULL,
+  occurred_at DATETIME NOT NULL,
+  fixed_by VARCHAR(150) NOT NULL,
+  client_name VARCHAR(150) NOT NULL,
+  status ENUM('open','in_progress','fixed') NOT NULL DEFAULT 'open',
+  note TEXT NULL,
+  created_by INT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX (sector_id, occurred_at),
+  FOREIGN KEY (sector_id) REFERENCES sectors(id) ON DELETE CASCADE,
+  FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
