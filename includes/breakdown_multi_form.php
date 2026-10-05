@@ -4,6 +4,7 @@ $cls = 'mt-1 w-full border rounded px-3 py-2';
 $now = date('Y-m-d\TH:i');
 $companies = all_companies();
 $technicians = $u['role'] === 'admin' ? active_technicians() : [];
+$fixedByName = person_name_parts((string)$u['name']);
 ?>
 <form method="post" action="<?= e($formAction . '?sector=' . $formSector) ?>" class="mb-6"><?= csrf_field() ?>
   <input type="hidden" name="action" value="create_many"><input type="hidden" name="sector_id" value="<?= (int)$formSector ?>">
@@ -24,8 +25,12 @@ $technicians = $u['role'] === 'admin' ? active_technicians() : [];
     <label class="text-sm">Date &amp; time<input type="datetime-local" data-n="occurred_at" value="<?= $now ?>" class="<?= $cls ?>"></label>
     <label class="text-sm">Status<select data-n="status" class="<?= $cls ?>">
       <?php foreach (STATUSES as $k => $l): ?><option value="<?= $k ?>" <?= $k === 'fixed' ? 'selected' : '' ?>><?= $l ?></option><?php endforeach; ?></select></label>
-    <label class="text-sm">Contacted by (client side)<input data-n="client_name" maxlength="150" class="<?= $cls ?>"></label>
-    <label class="text-sm">Fixed by (company side)<input data-n="fixed_by" maxlength="150" value="<?= e($u['name']) ?>" class="<?= $cls ?>"></label>
+    <label class="text-sm">Contacted by (client side)<div class="mt-1 flex gap-1">
+      <select data-n="client_title" class="border rounded px-2 py-2"><?php foreach (PERSON_NAME_TITLES as $value => $title): ?><option value="<?= e($value) ?>"><?= e($title) ?></option><?php endforeach; ?></select>
+      <input data-n="client_name" maxlength="138" class="<?= $cls ?> mt-0"></div></label>
+    <label class="text-sm">Fixed by (company side)<div class="mt-1 flex gap-1">
+      <select data-n="fixed_by_title" class="border rounded px-2 py-2"><?php foreach (PERSON_NAME_TITLES as $value => $title): ?><option value="<?= e($value) ?>" <?= $fixedByName[0] === $value ? 'selected' : '' ?>><?= e($title) ?></option><?php endforeach; ?></select>
+      <input data-n="fixed_by" maxlength="138" value="<?= e($fixedByName[1]) ?>" class="<?= $cls ?> mt-0"></div></label>
     <?php if ($u['role'] === 'admin'): ?>
     <label class="text-sm flex items-center gap-2"><input type="checkbox" data-n="technician_required" value="1"> Technician required (for non-online issues)</label>
     <label class="text-sm technician-select-wrap hidden">Assign technician<select data-n="technician_id" class="<?= $cls ?>">

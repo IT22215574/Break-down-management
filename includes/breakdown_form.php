@@ -1,6 +1,8 @@
 <?php
 // Expects $row (array), $sectors, $heading, $submit.
 $cls = 'mt-1 w-full border rounded px-3 py-2';
+$clientName = person_name_parts((string)$row['client_name']);
+$fixedByName = person_name_parts((string)$row['fixed_by']);
 ?>
 <form method="post" class="bg-white rounded shadow p-4 mb-6 grid md:grid-cols-3 gap-3"><?= csrf_field() ?>
   <h2 class="md:col-span-3 font-semibold"><?= e($heading) ?></h2>
@@ -10,8 +12,12 @@ $cls = 'mt-1 w-full border rounded px-3 py-2';
     <?php foreach (all_companies() as $c): ?><option value="<?= $c['id'] ?>" <?= ($row['company_id'] ?? null) == $c['id'] ? 'selected' : '' ?>><?= e($c['name']) ?></option><?php endforeach; ?></select></label>
   <label class="text-sm">System broken down<input name="system_name" required maxlength="190" value="<?= e($row['system_name']) ?>" class="<?= $cls ?>"></label>
   <label class="text-sm">Date &amp; time<input type="datetime-local" name="occurred_at" required value="<?= e(date('Y-m-d\TH:i', strtotime($row['occurred_at']))) ?>" class="<?= $cls ?>"></label>
-  <label class="text-sm">Contacted by (client side)<input name="client_name" required maxlength="150" value="<?= e($row['client_name']) ?>" class="<?= $cls ?>"></label>
-  <label class="text-sm">Fixed by (company side)<input name="fixed_by" required maxlength="150" value="<?= e($row['fixed_by']) ?>" class="<?= $cls ?>"></label>
+  <label class="text-sm">Contacted by (client side)<div class="mt-1 flex gap-1">
+    <select name="client_title" class="border rounded px-2 py-2"><?php foreach (PERSON_NAME_TITLES as $value => $title): ?><option value="<?= e($value) ?>" <?= $clientName[0] === $value ? 'selected' : '' ?>><?= e($title) ?></option><?php endforeach; ?></select>
+    <input name="client_name" required maxlength="138" value="<?= e($clientName[1]) ?>" class="<?= $cls ?> mt-0"></div></label>
+  <label class="text-sm">Fixed by (company side)<div class="mt-1 flex gap-1">
+    <select name="fixed_by_title" class="border rounded px-2 py-2"><?php foreach (PERSON_NAME_TITLES as $value => $title): ?><option value="<?= e($value) ?>" <?= $fixedByName[0] === $value ? 'selected' : '' ?>><?= e($title) ?></option><?php endforeach; ?></select>
+    <input name="fixed_by" required maxlength="138" value="<?= e($fixedByName[1]) ?>" class="<?= $cls ?> mt-0"></div></label>
   <label class="text-sm">Status<select name="status" class="<?= $cls ?>">
     <?php foreach (STATUSES as $k => $l): ?><option value="<?= $k ?>" <?= $row['status'] === $k ? 'selected' : '' ?>><?= $l ?></option><?php endforeach; ?></select></label>
   <?php if ($u['role'] === 'admin'): ?>

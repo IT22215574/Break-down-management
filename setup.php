@@ -6,6 +6,12 @@ $pdo = new PDO("mysql:host={$c['db_host']};charset=utf8mb4", $c['db_user'], $c['
 $pdo->exec("CREATE DATABASE IF NOT EXISTS `{$c['db_name']}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
 $pdo->exec("USE `{$c['db_name']}`");
 foreach (array_filter(array_map('trim', explode(';', file_get_contents(__DIR__ . '/schema.sql')))) as $sql) $pdo->exec($sql);
+$sectorColumns = $pdo->query('SHOW COLUMNS FROM sectors')->fetchAll(PDO::FETCH_COLUMN);
+foreach (['phone' => 'VARCHAR(32) NULL', 'email' => 'VARCHAR(190) NULL'] as $column => $definition) {
+    if (!in_array($column, $sectorColumns, true)) {
+        $pdo->exec("ALTER TABLE sectors ADD COLUMN {$column} {$definition}");
+    }
+}
 $email = $argv[1] ?? 'admin@example.com';
 $pass = $argv[2] ?? 'Admin@12345';
 $st = $pdo->prepare('SELECT COUNT(*) FROM users WHERE email = ?');

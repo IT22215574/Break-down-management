@@ -13,9 +13,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         if ($action === 'update') {
             $name = trim($_POST['name'] ?? '');
-            if ($name === '') { flash('Name is required.', 'error'); redirect('admin/sector.php?id=' . $id); }
-            $pdo->prepare('UPDATE sectors SET name=?, description=? WHERE id=?')
-                ->execute([$name, trim($_POST['description'] ?? ''), $id]);
+            $phone = trim($_POST['phone'] ?? '');
+            $email = trim($_POST['email'] ?? '');
+            if ($name === '' || !preg_match('/^[0-9]{10}$/', $phone) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                flash('Enter a sector name, a 10-digit phone number, and a valid email address.', 'error');
+                redirect('admin/sector.php?id=' . $id);
+            }
+            $pdo->prepare('UPDATE sectors SET name=?, phone=?, email=?, description=? WHERE id=?')
+                ->execute([$name, $phone, $email, trim($_POST['description'] ?? ''), $id]);
             $pdo->prepare('DELETE FROM sector_user WHERE sector_id=?')->execute([$id]);
             $ins = $pdo->prepare('INSERT IGNORE INTO sector_user (sector_id,user_id) VALUES (?,?)');
             foreach ((array)($_POST['members'] ?? []) as $uid) $ins->execute([$id, (int)$uid]);
@@ -43,7 +48,9 @@ page_header($s['name'], $u);
 <h1 class="text-2xl font-bold my-4"><?= e($s['name']) ?></h1>
 <form method="post" class="bg-white rounded shadow p-4"><?= csrf_field() ?><input type="hidden" name="id" value="<?= $id ?>">
   <div class="grid md:grid-cols-2 gap-3">
-    <label class="text-sm">Name<input name="name" required value="<?= e($s['name']) ?>" class="mt-1 w-full border rounded px-3 py-2"></label>
+    <label class="text-sm">Name<input name="name" required maxlength="150" value="<?= e($s['name']) ?>" class="mt-1 w-full border rounded px-3 py-2"></label>
+    <label class="text-sm">Phone number<input type="tel" name="phone" required minlength="10" maxlength="10" pattern="[0-9]{10}" inputmode="numeric" value="<?= e($s['phone'] ?? '') ?>" class="sector-phone mt-1 w-full border rounded px-3 py-2"></label>
+    <label class="text-sm">Email address<input type="email" name="email" required maxlength="190" value="<?= e($s['email'] ?? '') ?>" class="mt-1 w-full border rounded px-3 py-2"></label>
     <label class="text-sm">Description<input name="description" value="<?= e($s['description']) ?>" class="mt-1 w-full border rounded px-3 py-2"></label>
   </div>
   <div class="mt-3 text-sm font-medium">Members (IT support can record; users can view)</div>
@@ -59,4 +66,11 @@ page_header($s['name'], $u);
     <span class="text-xs text-slate-500"><?= (int)$s['cnt'] ?> record(s)</span>
   </div>
 </form>
+<script>
+document.querySelectorAll('.sector-phone').forEach(input => {
+  input.addEventListener('input', () => {
+    input.value = input.value.replace(/\D/g, '').slice(0, 10);
+  });
+});
+</script>
 <?php page_footer();

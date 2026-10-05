@@ -16,6 +16,10 @@ function active_technician_exists(int $id): bool {
 function read_breakdown_post(array $u): array {
     $d = [];
     foreach (['system_name', 'client_name', 'fixed_by', 'description', 'note'] as $k) $d[$k] = trim((string)($_POST[$k] ?? ''));
+    foreach (['client_name' => 'client_title', 'fixed_by' => 'fixed_by_title'] as $name => $title) {
+        $d[$name] = person_name_with_title($d[$name], (string)($_POST[$title] ?? ''));
+        if ($d[$name] === null || person_name_length($d[$name]) > 150) return [null, 'Enter valid contacted-by and fixed-by names.'];
+    }
     $d['sector_id'] = (int)($_POST['sector_id'] ?? 0);
     $d['company_id'] = (int)($_POST['company_id'] ?? 0) ?: null;
     $d['status'] = $_POST['status'] ?? '';
@@ -52,6 +56,12 @@ function handle_breakdown_create(array $u, string $back): void {
         $r['status'] = $e['status'] ?? 'fixed';
         $r['company_id'] = (int)($e['company_id'] ?? 0) ?: null;
         if (!$r['company_id'] && $r['system_name'] === '' && $r['client_name'] === '' && $r['fixed_by'] === '' && $r['note'] === '') continue;
+        foreach (['client_name' => 'client_title', 'fixed_by' => 'fixed_by_title'] as $name => $title) {
+            $r[$name] = person_name_with_title($r[$name], (string)($e[$title] ?? ''));
+            if ($r[$name] === null || person_name_length($r[$name]) > 150) {
+                flash('Form #' . ((int)$i + 1) . ': enter valid contacted-by and fixed-by names.', 'error'); redirect($back);
+            }
+        }
         if ($u['role'] === 'admin') {
             $r['technician_required'] = !empty($e['technician_required']) ? 1 : 0;
             $r['technician_id'] = (int)($e['technician_id'] ?? 0) ?: null;

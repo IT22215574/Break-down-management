@@ -49,6 +49,34 @@ function e($v): string { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'
 function url(string $p = ''): string { return APP_URL . '/' . ltrim($p, '/'); }
 function redirect(string $p): never { header('Location: ' . url($p)); exit; }
 
+const PERSON_NAME_TITLES = [
+    '' => 'No title',
+    'Mr' => 'Mr.',
+    'Miss' => 'Miss',
+    'Mrs' => 'Mrs.',
+    'Honorable' => 'Honorable',
+];
+
+function person_name_with_title(string $name, string $title): ?string {
+    $name = trim($name);
+    if ($name === '' || !array_key_exists($title, PERSON_NAME_TITLES)) return null;
+    return $title === '' ? $name : $title . ' ' . $name;
+}
+
+function person_name_length(string $name): int {
+    $length = preg_match_all('/./us', $name);
+    return $length === false ? PHP_INT_MAX : $length;
+}
+
+function person_name_parts(string $name): array {
+    foreach (PERSON_NAME_TITLES as $title => $_label) {
+        if ($title !== '' && str_starts_with($name, $title . ' ')) {
+            return [$title, substr($name, strlen($title) + 1)];
+        }
+    }
+    return ['', $name];
+}
+
 function csrf_token(): string {
     return $_SESSION['csrf'] ??= bin2hex(random_bytes(32));
 }
@@ -242,7 +270,9 @@ function render_records(array $u, string $action): void {
 <?php   return;
     }
 
-    $f = ['sector' => (string)$sid, 'status' => '', 'from' => '', 'to' => '', 'q' => ''];
+    $status = (string)($_GET['status'] ?? '');
+    if (!isset(STATUSES[$status])) $status = '';
+    $f = ['sector' => (string)$sid, 'status' => $status, 'from' => '', 'to' => '', 'q' => ''];
     $rows = fetch_breakdowns($u, $f);
     $qs = http_build_query(array_filter($f));
     ?>
@@ -251,6 +281,14 @@ function render_records(array $u, string $action): void {
   <a class="text-sm text-blue-600" href="<?= e($action) ?>">&larr; All sectors</a>
 </div>
 <?php if (in_array($u['role'], ['admin', 'support'], true)) { $formSector = $sid; $formAction = $action; include __DIR__ . '/breakdown_multi_form.php'; } ?>
+<form method="get" action="<?= e($action) ?>" class="bg-white rounded shadow p-4 mb-3 flex flex-wrap items-end gap-3 print:hidden">
+  <input type="hidden" name="sector" value="<?= (int)$sid ?>">
+  <label class="text-sm">Status<select name="status" onchange="this.form.submit()" class="mt-1 block border rounded px-3 py-2">
+    <option value="">All statuses</option>
+    <?php foreach (STATUSES as $k => $l): ?><option value="<?= e($k) ?>" <?= $status === $k ? 'selected' : '' ?>><?= e($l) ?></option><?php endforeach; ?>
+  </select></label>
+  <?php if ($status !== ''): ?><a href="<?= e($action . '?sector=' . (int)$sid) ?>" class="text-sm text-slate-600 py-2">Clear</a><?php endif; ?>
+</form>
 <div class="flex flex-wrap gap-2 mb-3 print:hidden">
   <a href="<?= url('report.php?' . $qs) ?>" class="bg-green-600 hover:bg-green-700 text-white rounded px-3 py-1.5 text-sm">⬇ Download report (CSV)</a>
   <a href="<?= url('report.php?' . $qs . '&format=print') ?>" target="_blank" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-1.5 text-sm">🖨 Printable / PDF report</a>

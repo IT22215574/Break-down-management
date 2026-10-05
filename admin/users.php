@@ -5,9 +5,10 @@ $u = require_role('admin');
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     if ($action === 'create') {
-        $name = trim($_POST['name'] ?? ''); $email = trim($_POST['email'] ?? ''); $pw = $_POST['password'] ?? '';
+        $name = person_name_with_title((string)($_POST['name'] ?? ''), (string)($_POST['name_title'] ?? ''));
+        $email = trim($_POST['email'] ?? ''); $pw = $_POST['password'] ?? '';
         $role = $_POST['role'] ?? '';
-        if ($name === '' || !filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($pw) < 8 || !in_array($role, ['admin', 'support', 'user'], true)) {
+        if ($name === null || person_name_length($name) > 120 || !filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($pw) < 8 || !in_array($role, ['admin', 'support', 'user'], true)) {
             flash('Valid name, email, role and a password of 8+ characters are required.', 'error');
         } else {
             try {
@@ -31,7 +32,9 @@ page_header('Users', $u);
 ?>
 <h1 class="text-2xl font-bold mb-4">Users</h1>
 <form method="post" class="bg-white rounded shadow p-4 mb-6 grid md:grid-cols-5 gap-3 items-end"><?= csrf_field() ?><input type="hidden" name="action" value="create">
-  <label class="text-sm">Name<input name="name" required class="mt-1 w-full border rounded px-3 py-2"></label>
+  <label class="text-sm">Name<div class="mt-1 flex gap-1">
+    <select name="name_title" class="border rounded px-2 py-2"><?php foreach (PERSON_NAME_TITLES as $value => $title): ?><option value="<?= e($value) ?>"><?= e($title) ?></option><?php endforeach; ?></select>
+    <input name="name" required maxlength="108" class="min-w-0 w-full border rounded px-3 py-2"></div></label>
   <label class="text-sm">Email<input type="email" name="email" required class="mt-1 w-full border rounded px-3 py-2"></label>
   <label class="text-sm">Password<input type="password" name="password" minlength="8" required class="mt-1 w-full border rounded px-3 py-2"></label>
   <label class="text-sm">Role<select name="role" class="mt-1 w-full border rounded px-3 py-2">
