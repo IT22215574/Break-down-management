@@ -5,7 +5,7 @@
 3. Open http://localhost/Break-down-management/ and change the admin password under Admin → Users.
 
 Roles (all log in with email + password):
-- **Admin** – creates sectors, creates users, assigns IT support/users to sectors, views all records.
+- **Admin** – creates sectors, users, and technicians; assigns IT support/users to sectors; views all records and makes printable quotations when a technician is required.
 - **IT support** – records breakdowns (date/time, system, client, fixed by, status, note) in their assigned sectors.
 - **User** – view-only for assigned sectors; download CSV or printable/PDF report.
 

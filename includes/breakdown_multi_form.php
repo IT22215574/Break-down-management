@@ -38,7 +38,9 @@ $fixedByName = person_name_parts((string)$u['name']);
       <?php foreach ($technicians as $technician): ?><option value="<?= (int)$technician['id'] ?>"><?= e($technician['name']) ?> (<?= e($technician['phone'] ?? '') ?>)</option><?php endforeach; ?></select>
       <?php if (!$technicians): ?><span class="text-xs text-slate-500">Add a technician before assigning one.</span><?php endif; ?>
     </label>
+    <a class="quotation-link hidden bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-2 text-sm text-center self-end" href="<?= url('quotation.php?sector_id=' . $formSector) ?>" target="_blank" rel="noopener">Make Quotations</a>
     <?php endif; ?>
+    <label class="text-sm md:col-span-3">Breakdown<textarea data-n="description" rows="2" class="<?= $cls ?>"></textarea></label>
     <label class="text-sm md:col-span-3">Note (what was done to fix it)<textarea data-n="note" rows="2" class="<?= $cls ?>"></textarea></label>
   </div>
 </template>
@@ -52,9 +54,22 @@ $fixedByName = person_name_parts((string)$u['name']);
       const required = el.querySelector('[data-n="technician_required"]');
       if (required) {
         const select = el.querySelector('[data-n="technician_id"]');
+        const quotationLink = el.querySelector('.quotation-link');
         required.onchange = () => {
           el.querySelector('.technician-select-wrap').classList.toggle('hidden', !required.checked);
+          quotationLink.classList.toggle('hidden', !required.checked);
           select.required = required.checked;
+        };
+        quotationLink.onclick = event => {
+          event.preventDefault();
+          const quoteUrl = new URL(quotationLink.href, window.location.href);
+          const title = el.querySelector('[data-n="client_title"]').value;
+          const contactName = el.querySelector('[data-n="client_name"]').value;
+          quoteUrl.searchParams.set('contact_name', title ? title + '. ' + contactName : contactName);
+          quoteUrl.searchParams.set('machine_model', el.querySelector('[data-n="system_name"]').value);
+          quoteUrl.searchParams.set('breakdown', el.querySelector('[data-n="description"]').value);
+          quoteUrl.searchParams.set('remark', el.querySelector('[data-n="note"]').value);
+          window.open(quoteUrl.toString(), '_blank', 'noopener');
         };
       }
     });

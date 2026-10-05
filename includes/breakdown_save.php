@@ -52,10 +52,10 @@ function handle_breakdown_create(array $u, string $back): void {
     foreach ((array)($_POST['entries'] ?? []) as $i => $e) {
         $e = (array)$e;
         $r = [];
-        foreach (['system_name', 'client_name', 'fixed_by', 'note'] as $k) $r[$k] = trim((string)($e[$k] ?? ''));
+        foreach (['system_name', 'client_name', 'fixed_by', 'description', 'note'] as $k) $r[$k] = trim((string)($e[$k] ?? ''));
         $r['status'] = $e['status'] ?? 'fixed';
         $r['company_id'] = (int)($e['company_id'] ?? 0) ?: null;
-        if (!$r['company_id'] && $r['system_name'] === '' && $r['client_name'] === '' && $r['fixed_by'] === '' && $r['note'] === '') continue;
+        if (!$r['company_id'] && $r['system_name'] === '' && $r['client_name'] === '' && $r['fixed_by'] === '' && $r['description'] === '' && $r['note'] === '') continue;
         foreach (['client_name' => 'client_title', 'fixed_by' => 'fixed_by_title'] as $name => $title) {
             $r[$name] = person_name_with_title($r[$name], (string)($e[$title] ?? ''));
             if ($r[$name] === null || person_name_length($r[$name]) > 150) {
@@ -86,7 +86,7 @@ function handle_breakdown_create(array $u, string $back): void {
     $pdo->beginTransaction();
     $ins = $pdo->prepare('INSERT INTO breakdowns (sector_id,company_id,system_name,description,occurred_at,fixed_by,client_name,status,note,created_by,technician_id,technician_required)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');
-    foreach ($rows as $r) $ins->execute([$sid, $r['company_id'], $r['system_name'], '', $r['occurred_at'], $r['fixed_by'], $r['client_name'], $r['status'], $r['note'], $u['id'], $r['technician_id'], $r['technician_required']]);
+    foreach ($rows as $r) $ins->execute([$sid, $r['company_id'], $r['system_name'], $r['description'], $r['occurred_at'], $r['fixed_by'], $r['client_name'], $r['status'], $r['note'], $u['id'], $r['technician_id'], $r['technician_required']]);
     $pdo->commit();
     flash(count($rows) . ' breakdown record(s) saved.');
     redirect($back);

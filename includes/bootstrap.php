@@ -524,7 +524,7 @@ function render_records(array $u, string $action): void {
   <a href="<?= url('report.php?' . $qs . '&format=print') ?>" target="_blank" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-1.5 text-sm">🖨 Printable / PDF report</a>
   <span class="text-sm text-slate-500 self-center"><?= count($rows) ?> record(s)</span>
 </div>
-<?php records_cards($rows); }
+<?php records_cards($rows, $u); }
 
 function records_table(array $rows, bool $actions = false): void { ?>
 <div class="bg-white rounded shadow overflow-x-auto"><table class="w-full text-sm">
@@ -545,17 +545,20 @@ function records_table(array $rows, bool $actions = false): void { ?>
 <?php }
 
 // Line-card list; each card opens the breakdown detail page.
-function records_cards(array $rows): void { ?>
+function records_cards(array $rows, array $u): void { ?>
 <div class="space-y-2">
 <?php foreach ($rows as $r): ?>
-  <a href="<?= url('breakdown.php?id=' . (int)$r['id']) ?>" class="flex flex-wrap items-center justify-between gap-3 bg-white rounded shadow px-4 py-3 hover:bg-slate-50">
-    <div class="min-w-0">
+  <div class="flex flex-wrap items-center justify-between gap-3 bg-white rounded shadow px-4 py-3">
+    <a href="<?= url('breakdown.php?id=' . (int)$r['id']) ?>" class="min-w-0 flex-1 hover:text-blue-700">
       <div class="font-semibold truncate"><?= e($r['system_name']) ?></div>
       <div class="text-sm text-slate-500 truncate"><?= e($r['sector_name']) ?> &middot; <?= e($r['company_name'] ?? 'No company') ?> &middot; <?= e(date('Y-m-d H:i', strtotime($r['occurred_at']))) ?><?php if (!empty($r['technician_required'])): ?> &middot; Technician: <?= e($r['technician_name'] ?? 'Not assigned') ?><?php endif; ?></div>
-    </div>
-    <div class="text-sm text-slate-500">Client: <?= e($r['client_name']) ?> &middot; Fixed by: <?= e($r['fixed_by']) ?></div>
-    <div><?= status_badge($r['status']) ?> <span class="text-slate-400">&rsaquo;</span></div>
-  </a>
+      <div class="text-sm text-slate-500">Client: <?= e($r['client_name']) ?> &middot; Fixed by: <?= e($r['fixed_by']) ?></div>
+      <div class="mt-1"><?= status_badge($r['status']) ?></div>
+    </a>
+    <?php if ($u['role'] === 'admin' && !empty($r['technician_required'])): ?>
+      <a href="<?= url('quotation.php?breakdown_id=' . (int)$r['id']) ?>" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-2 text-sm whitespace-nowrap">Make Quotations</a>
+    <?php endif; ?>
+  </div>
 <?php endforeach; if (!$rows): ?><p class="text-slate-500">No breakdowns found.</p><?php endif; ?>
 </div>
 <?php }
