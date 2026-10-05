@@ -15,6 +15,14 @@ try {
     exit('Database unavailable. Start MySQL and run "php setup.php".');
 }
 
+// Upgrade databases created before companies existed.
+$pdo->exec('CREATE TABLE IF NOT EXISTS companies (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(150) NOT NULL UNIQUE,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB');
+if (!$pdo->query("SHOW COLUMNS FROM breakdowns LIKE 'company_id'")->fetch()) {
+    $pdo->exec('ALTER TABLE breakdowns ADD company_id INT NULL AFTER sector_id,
+        ADD FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL');
+}
+
 $docRoot = realpath($_SERVER['DOCUMENT_ROOT'] ?? '') ?: '';
 $appRoot = realpath(__DIR__ . '/..');
 define('APP_URL', str_starts_with($appRoot, $docRoot) ? str_replace('\\', '/', substr($appRoot, strlen($docRoot))) : '');
@@ -81,6 +89,11 @@ function can_access_sector(array $u, int $sid): bool {
 
 const STATUSES = ['open' => 'Open', 'in_progress' => 'In progress', 'fixed' => 'Fixed'];
 
+function all_companies(): array {
+    global $pdo;
+    return $pdo->query('SELECT * FROM companies ORDER BY name')->fetchAll();
+}
+
 function fetch_breakdowns(array $u, array $f): array {
     global $pdo;
     $ids = array_map(fn($s) => (int)$s['id'], accessible_sectors($u));
@@ -91,10 +104,10 @@ function fetch_breakdowns(array $u, array $f): array {
     if (!empty($f['from'])) { $where[] = 'b.occurred_at >= ?'; $p[] = $f['from'] . ' 00:00:00'; }
     if (!empty($f['to'])) { $where[] = 'b.occurred_at <= ?'; $p[] = $f['to'] . ' 23:59:59'; }
     if (!empty($f['q'])) {
-        $where[] = '(b.system_name LIKE ? OR b.client_name LIKE ? OR b.fixed_by LIKE ? OR b.note LIKE ?)';
-        $like = '%' . addcslashes($f['q'], '%_\\') . '%'; array_push($p, $like, $like, $like, $like);
+        $where[] = '(b.system_name LIKE ? OR c.name LIKE ? OR b.client_name LIKE ? OR b.fixed_by LIKE ? OR b.note LIKE ?)';
+        $like = '%' . addcslashes($f['q'], '%_\\') . '%'; array_push($p, $like, $like, $like, $like, $like);
     }
-    $st = $pdo->prepare('SELECT b.*, s.name AS sector_name FROM breakdowns b JOIN sectors s ON s.id=b.sector_id WHERE '
+    $st = $pdo->prepare('SELECT b.*, s.name AS sector_name, c.name AS company_name FROM breakdowns b JOIN sectors s ON s.id=b.sector_id LEFT JOIN companies c ON c.id=b.company_id WHERE '
         . implode(' AND ', $where) . ' ORDER BY b.occurred_at DESC, b.id DESC');
     $st->execute($p);
     return $st->fetchAll();
@@ -111,7 +124,7 @@ function page_header(string $title, ?array $u = null): void {
     $f = flash();
     $nav = [];
     if ($u) {
-        if ($u['role'] === 'admin') $nav = ['admin/index.php' => 'Sectors', 'admin/users.php' => 'Users', 'admin/records.php' => 'Breakdowns'];
+        if ($u['role'] === 'admin') $nav = ['admin/index.php' => 'Sectors', 'admin/companies.php' => 'Company', 'admin/users.php' => 'Users', 'admin/records.php' => 'Breakdowns'];
         if ($u['role'] === 'support') $nav = ['support/index.php' => 'My sectors'];
         if ($u['role'] === 'user') $nav = ['user/index.php' => 'Breakdowns'];
     }
@@ -140,43 +153,81 @@ function status_badge(string $s): string {
     return '<span class="px-2 py-0.5 rounded text-xs font-medium ' . $c . '">' . e(STATUSES[$s] ?? $s) . '</span>';
 }
 
-// Shared read-only filter bar + table (used by admin, support and user views).
+// Step 1: searchable list of sectors. Step 2 (?sector=ID): that sector's breakdowns only.
 function render_records(array $u, string $action): void {
-    $f = filters_from_request();
-    $rows = fetch_breakdowns($u, $f);
+    global $pdo;
     $sectors = accessible_sectors($u);
-    $qs = http_build_query(array_filter($f));
+    $sid = (int)($_GET['sector'] ?? 0);
     $cls = 'border rounded px-2 py-1 text-sm';
-    ?>
-<form method="get" action="<?= e($action) ?>" class="bg-white rounded shadow p-4 mb-4 grid gap-3 md:grid-cols-6 items-end print:hidden">
-  <label class="text-xs">Sector<select name="sector" class="<?= $cls ?> w-full"><option value="">All</option>
-    <?php foreach ($sectors as $s): ?><option value="<?= $s['id'] ?>" <?= $f['sector'] == $s['id'] ? 'selected' : '' ?>><?= e($s['name']) ?></option><?php endforeach; ?></select></label>
-  <label class="text-xs">Status<select name="status" class="<?= $cls ?> w-full"><option value="">All</option>
-    <?php foreach (STATUSES as $k => $l): ?><option value="<?= $k ?>" <?= $f['status'] === $k ? 'selected' : '' ?>><?= $l ?></option><?php endforeach; ?></select></label>
-  <label class="text-xs">From<input type="date" name="from" value="<?= e($f['from']) ?>" class="<?= $cls ?> w-full"></label>
-  <label class="text-xs">To<input type="date" name="to" value="<?= e($f['to']) ?>" class="<?= $cls ?> w-full"></label>
-  <label class="text-xs">Search<input name="q" value="<?= e($f['q']) ?>" class="<?= $cls ?> w-full"></label>
-  <button class="bg-slate-800 text-white rounded px-3 py-1.5 text-sm">Filter</button>
+    $sector = null;
+    foreach ($sectors as $s) if ((int)$s['id'] === $sid) $sector = $s;
+
+    if (!$sector) {
+        $q = trim((string)($_GET['q'] ?? ''));
+        $counts = [];
+        foreach ($pdo->query('SELECT sector_id, COUNT(*) c FROM breakdowns GROUP BY sector_id') as $r) $counts[$r['sector_id']] = $r['c'];
+        if ($q !== '') $sectors = array_filter($sectors, fn($s) => stripos($s['name'], $q) !== false);
+        ?>
+<form method="get" action="<?= e($action) ?>" class="bg-white rounded shadow p-4 mb-4 flex gap-3 items-end">
+  <label class="text-xs flex-1">Search sector by name<input name="q" value="<?= e($q) ?>" placeholder="Sector name" class="<?= $cls ?> w-full"></label>
+  <button class="bg-slate-800 text-white rounded px-3 py-1.5 text-sm">Search</button>
 </form>
+<div class="space-y-2">
+<?php foreach ($sectors as $s): ?>
+  <a href="<?= e($action . '?sector=' . (int)$s['id']) ?>" class="flex items-center justify-between gap-4 bg-white rounded shadow px-4 py-3 hover:bg-slate-50">
+    <div class="min-w-0"><div class="font-semibold truncate"><?= e($s['name']) ?></div>
+      <div class="text-sm text-slate-500 truncate"><?= e($s['description'] ?? '') ?></div></div>
+    <div class="text-xs text-slate-500 whitespace-nowrap"><?= (int)($counts[$s['id']] ?? 0) ?> record(s) &rsaquo;</div>
+  </a>
+<?php endforeach; if (!$sectors): ?><p class="text-slate-500">No sectors found.</p><?php endif; ?>
+</div>
+<?php   return;
+    }
+
+    $f = ['sector' => (string)$sid, 'status' => '', 'from' => '', 'to' => '', 'q' => ''];
+    $rows = fetch_breakdowns($u, $f);
+    $qs = http_build_query(array_filter($f));
+    ?>
+<div class="flex items-center justify-between mb-4">
+  <h2 class="text-xl font-semibold"><?= e($sector['name']) ?></h2>
+  <a class="text-sm text-blue-600" href="<?= e($action) ?>">&larr; All sectors</a>
+</div>
+<?php if (in_array($u['role'], ['admin', 'support'], true)) { $formSector = $sid; $formAction = $action; include __DIR__ . '/breakdown_multi_form.php'; } ?>
 <div class="flex flex-wrap gap-2 mb-3 print:hidden">
   <a href="<?= url('report.php?' . $qs) ?>" class="bg-green-600 hover:bg-green-700 text-white rounded px-3 py-1.5 text-sm">⬇ Download report (CSV)</a>
-  <a href="<?= url('report.php?' . $qs . ($qs ? '&' : '') . 'format=print') ?>" target="_blank" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-1.5 text-sm">🖨 Printable / PDF report</a>
+  <a href="<?= url('report.php?' . $qs . '&format=print') ?>" target="_blank" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-1.5 text-sm">🖨 Printable / PDF report</a>
   <span class="text-sm text-slate-500 self-center"><?= count($rows) ?> record(s)</span>
 </div>
-<?php records_table($rows); }
+<?php records_cards($rows); }
 
 function records_table(array $rows, bool $actions = false): void { ?>
 <div class="bg-white rounded shadow overflow-x-auto"><table class="w-full text-sm">
 <thead class="bg-slate-50 text-left text-xs uppercase text-slate-500"><tr>
-  <th class="p-3">Date &amp; time</th><th class="p-3">Sector</th><th class="p-3">System</th><th class="p-3">Client</th>
+  <th class="p-3">Date &amp; time</th><th class="p-3">Sector</th><th class="p-3">Company</th><th class="p-3">System</th><th class="p-3">Client</th>
   <th class="p-3">Fixed by</th><th class="p-3">Status</th><th class="p-3">Note</th><?php if ($actions): ?><th class="p-3"></th><?php endif; ?></tr></thead><tbody>
 <?php foreach ($rows as $r): ?><tr class="border-t align-top">
   <td class="p-3 whitespace-nowrap"><?= e(date('Y-m-d H:i', strtotime($r['occurred_at']))) ?></td>
-  <td class="p-3"><?= e($r['sector_name']) ?></td>
+  <td class="p-3"><?= e($r['sector_name']) ?></td><td class="p-3"><?= e($r['company_name'] ?? '') ?></td>
   <td class="p-3"><div class="font-medium"><?= e($r['system_name']) ?></div><div class="text-slate-500"><?= nl2br(e($r['description'])) ?></div></td>
   <td class="p-3"><?= e($r['client_name']) ?></td><td class="p-3"><?= e($r['fixed_by']) ?></td>
   <td class="p-3"><?= status_badge($r['status']) ?></td><td class="p-3"><?= nl2br(e($r['note'])) ?></td>
   <?php if ($actions): ?><td class="p-3 whitespace-nowrap"><a class="text-blue-600" href="<?= url('support/edit.php?id=' . $r['id']) ?>">Edit</a></td><?php endif; ?>
-</tr><?php endforeach; if (!$rows): ?><tr><td colspan="8" class="p-6 text-center text-slate-500">No breakdowns found.</td></tr><?php endif; ?>
+</tr><?php endforeach; if (!$rows): ?><tr><td colspan="9" class="p-6 text-center text-slate-500">No breakdowns found.</td></tr><?php endif; ?>
 </tbody></table></div>
+<?php }
+
+// Line-card list; each card opens the breakdown detail page.
+function records_cards(array $rows): void { ?>
+<div class="space-y-2">
+<?php foreach ($rows as $r): ?>
+  <a href="<?= url('breakdown.php?id=' . (int)$r['id']) ?>" class="flex flex-wrap items-center justify-between gap-3 bg-white rounded shadow px-4 py-3 hover:bg-slate-50">
+    <div class="min-w-0">
+      <div class="font-semibold truncate"><?= e($r['system_name']) ?></div>
+      <div class="text-sm text-slate-500 truncate"><?= e($r['sector_name']) ?> &middot; <?= e($r['company_name'] ?? 'No company') ?> &middot; <?= e(date('Y-m-d H:i', strtotime($r['occurred_at']))) ?></div>
+    </div>
+    <div class="text-sm text-slate-500">Client: <?= e($r['client_name']) ?> &middot; Fixed by: <?= e($r['fixed_by']) ?></div>
+    <div><?= status_badge($r['status']) ?> <span class="text-slate-400">&rsaquo;</span></div>
+  </a>
+<?php endforeach; if (!$rows): ?><p class="text-slate-500">No breakdowns found.</p><?php endif; ?>
+</div>
 <?php }
