@@ -82,6 +82,22 @@ $pdo->exec('CREATE TABLE IF NOT EXISTS accessory_brand_tags (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB');
 $pdo->exec('INSERT IGNORE INTO accessory_brand_tags (name) SELECT DISTINCT brand FROM accessories WHERE brand IS NOT NULL AND brand <> \'\'');
+$pdo->exec('CREATE TABLE IF NOT EXISTS quotations (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    breakdown_id INT NULL,
+    sector_id INT NOT NULL,
+    created_by INT NOT NULL,
+    quote_date DATE NOT NULL,
+    contact_name VARCHAR(190) NOT NULL DEFAULT \'\',
+    contact_phone VARCHAR(32) NOT NULL DEFAULT \'\',
+    breakdown TEXT NULL,
+    remark TEXT NULL,
+    machines_json MEDIUMTEXT NOT NULL,
+    accessories_json MEDIUMTEXT NOT NULL,
+    total DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX (sector_id), INDEX (breakdown_id)
+) ENGINE=InnoDB');
 $pdo->exec('CREATE TABLE IF NOT EXISTS edit_locks (
     resource_type VARCHAR(32) NOT NULL,
     resource_id INT NOT NULL,
@@ -614,6 +630,11 @@ function page_footer(): void {
     if (e.target.matches(sel)) e.target.setCustomValidity('');
   });
 })();
+// Stop mouse wheel / trackpad scrolling from changing focused number inputs.
+document.addEventListener('wheel', e => {
+  const t = e.target;
+  if (t instanceof HTMLInputElement && t.type === 'number' && document.activeElement === t) t.blur();
+}, {passive: true});
 </script>
 </body></html>
     <?php
@@ -695,7 +716,25 @@ function render_records(array $u, string $action): void {
   <a href="<?= url('report.php?' . $qs . '&format=print') ?>" target="_blank" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-1.5 text-sm">🖨 Printable / PDF report</a>
   <span class="text-sm text-slate-500 self-center"><?= count($rows) ?> record(s)</span>
 </div>
-<?php records_cards($rows, $u); }
+<?php records_cards($rows, $u);
+    if (in_array($u['role'], ['admin', 'support'], true)) {
+        $qst = $pdo->prepare('SELECT * FROM quotations WHERE sector_id=? ORDER BY created_at DESC, id DESC');
+        $qst->execute([$sid]);
+        $savedQuotes = $qst->fetchAll(); ?>
+<h2 class="text-xl font-semibold mt-8 mb-3">Saved quotations</h2>
+<div class="space-y-2">
+<?php foreach ($savedQuotes as $sq): ?>
+  <div class="flex flex-wrap items-center justify-between gap-3 bg-white rounded shadow px-4 py-3">
+    <div class="min-w-0">
+      <div class="font-semibold">Quotation #<?= (int)$sq['id'] ?></div>
+      <div class="text-sm text-slate-500"><?= e($sq['quote_date']) ?> &middot; <?= e($sq['contact_name']) ?> &middot; Total <?= number_format((float)$sq['total'], 2) ?></div>
+    </div>
+    <a href="<?= url('quotation_view.php?id=' . (int)$sq['id']) ?>" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-2 text-sm">View</a>
+  </div>
+<?php endforeach; if (!$savedQuotes): ?><p class="text-slate-500">No saved quotations for this sector yet.</p><?php endif; ?>
+</div>
+<?php }
+}
 
 function records_table(array $rows, bool $actions = false): void { ?>
 <div class="bg-white rounded shadow overflow-x-auto"><table class="w-full text-sm">
