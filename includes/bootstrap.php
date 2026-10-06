@@ -29,6 +29,12 @@ $pdo->exec('CREATE TABLE IF NOT EXISTS technicians (
     active TINYINT(1) NOT NULL DEFAULT 1,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB');
+$pdo->exec('CREATE TABLE IF NOT EXISTS sector_phones (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    sector_id INT NOT NULL,
+    phone VARCHAR(32) NOT NULL,
+    FOREIGN KEY (sector_id) REFERENCES sectors(id) ON DELETE CASCADE
+) ENGINE=InnoDB');
 $roleColumn = $pdo->query("SHOW COLUMNS FROM users LIKE 'role'")->fetch();
 if ($roleColumn && str_contains($roleColumn['Type'], "'technician'")) {
     $pdo->exec("UPDATE users SET role='support' WHERE role='technician'");
@@ -726,7 +732,7 @@ function render_records(array $u, string $action): void {
 <?php foreach ($savedQuotes as $sq): ?>
   <div class="flex flex-wrap items-center justify-between gap-3 bg-white rounded shadow px-4 py-3">
     <div class="min-w-0">
-      <div class="font-semibold">Quotation #<?= (int)$sq['id'] ?></div>
+      <div class="font-semibold">Job ID #<?= (int)$sq['id'] ?></div>
       <div class="text-sm text-slate-500"><?= e($sq['quote_date']) ?> &middot; <?= e($sq['contact_name']) ?> &middot; Total <?= number_format((float)$sq['total'], 2) ?></div>
     </div>
     <a href="<?= url('quotation_view.php?id=' . (int)$sq['id']) ?>" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-2 text-sm">View</a>

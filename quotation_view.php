@@ -16,7 +16,7 @@ page_header('Quotation', $u);
 ?>
 <div class="max-w-3xl mx-auto bg-white rounded shadow p-6 print:shadow-none print:p-0">
   <div class="flex flex-wrap items-start justify-between gap-3 mb-6">
-    <h1 class="text-2xl font-bold">Quotation</h1>
+    <h1 class="text-2xl font-bold">Job ID #<?= (int)$q['id'] ?></h1>
     <div class="flex gap-2 print:hidden">
       <a href="<?= url(($u['role'] === 'admin' ? 'admin/records.php' : 'support/records.php') . '?sector=' . (int)$q['sector_id']) ?>" class="text-sm text-blue-600 self-center">&larr; Back to breakdowns</a>
       <button type="button" onclick="window.print()" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-4 py-2 text-sm">Download / Save as PDF</button>
