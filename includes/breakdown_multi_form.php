@@ -81,7 +81,11 @@ document.addEventListener('input', e => {
   }
   function add() {
     const el = tpl.content.firstElementChild.cloneNode(true);
-    el.querySelector('.remove').onclick = () => { if (box.children.length > 1) { el.remove(); renumber(); } };
+    el.querySelector('.remove').onclick = () => {
+      el.remove();
+      if (box.children.length === 0) add();
+      else renumber();
+    };
     box.appendChild(el); renumber();
   }
   document.getElementById('addForm').onclick = add;

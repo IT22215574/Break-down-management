@@ -84,3 +84,20 @@ CREATE TABLE IF NOT EXISTS edit_locks (
   PRIMARY KEY (resource_type, resource_id),
   INDEX (expires_at)
 ) ENGINE=InnoDB;
+
+
+CREATE TABLE IF NOT EXISTS machine_tags (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  kind ENUM('category','brand','model') NOT NULL,
+  name VARCHAR(120) NOT NULL,
+  UNIQUE KEY kind_name (kind, name)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS machines (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  category VARCHAR(120) NOT NULL,
+  brand VARCHAR(120) NOT NULL,
+  model VARCHAR(120) NOT NULL,
+  model_code VARCHAR(120) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;

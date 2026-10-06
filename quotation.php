@@ -44,7 +44,7 @@ if ($breakdownId) {
     }
 }
 
-page_header('Make Quotations', $u);
+page_header('Make Quotations');
 ?>
 <div class="max-w-3xl mx-auto bg-white rounded shadow p-6">
   <div class="flex flex-wrap items-start justify-between gap-3 mb-6">

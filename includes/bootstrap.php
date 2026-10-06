@@ -52,6 +52,20 @@ if (!$pdo->query("SHOW TABLES LIKE 'breakdown_technicians'")->fetch()) {
         FOREIGN KEY (technician_id) REFERENCES technicians(id) ON DELETE CASCADE) ENGINE=InnoDB');
     $pdo->exec('INSERT INTO breakdown_technicians (breakdown_id, technician_id) SELECT id, technician_id FROM breakdowns WHERE technician_id IS NOT NULL');
 }
+$pdo->exec('CREATE TABLE IF NOT EXISTS machine_tags (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    kind ENUM(\'category\',\'brand\',\'model\') NOT NULL,
+    name VARCHAR(120) NOT NULL,
+    UNIQUE KEY kind_name (kind, name)
+) ENGINE=InnoDB');
+$pdo->exec('CREATE TABLE IF NOT EXISTS machines (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    category VARCHAR(120) NOT NULL,
+    brand VARCHAR(120) NOT NULL,
+    model VARCHAR(120) NOT NULL,
+    model_code VARCHAR(120) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB');
 $pdo->exec('CREATE TABLE IF NOT EXISTS edit_locks (
     resource_type VARCHAR(32) NOT NULL,
     resource_id INT NOT NULL,
@@ -328,7 +342,7 @@ function page_header(string $title, ?array $u = null): void {
     $f = flash();
     $nav = [];
     if ($u) {
-        if ($u['role'] === 'admin') $nav = ['admin/index.php' => 'Sectors', 'admin/companies.php' => 'Company', 'admin/users.php' => 'Users', 'admin/technicians.php' => 'Technicians', 'admin/records.php' => 'Breakdowns'];
+        if ($u['role'] === 'admin') $nav = ['admin/index.php' => 'Sectors', 'admin/companies.php' => 'Company', 'admin/users.php' => 'Users', 'admin/technicians.php' => 'Technicians', 'admin/machines.php' => 'Machines', 'admin/records.php' => 'Breakdowns'];
         if ($u['role'] === 'support') $nav = ['support/index.php' => 'My sectors'];
         if ($u['role'] === 'user') $nav = ['user/index.php' => 'Breakdowns'];
     }
