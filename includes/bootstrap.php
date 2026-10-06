@@ -63,6 +63,19 @@ $pdo->exec('CREATE TABLE IF NOT EXISTS edit_locks (
     INDEX (expires_at)
 ) ENGINE=InnoDB');
 
+// Sector login: optional email and/or generated ID. Issued IDs are kept forever so they are never reused after deletion.
+$pdo->exec("CREATE TABLE IF NOT EXISTS sector_login_ids (
+    login_id VARCHAR(8) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL PRIMARY KEY,
+    used TINYINT(1) NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB");
+if (!$pdo->query("SHOW COLUMNS FROM sectors LIKE 'login_id'")->fetch()) {
+    $pdo->exec("ALTER TABLE sectors ADD login_id VARCHAR(8) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL UNIQUE, ADD password_hash VARCHAR(255) NULL");
+}
+if (!$pdo->query("SHOW COLUMNS FROM sectors LIKE 'password_enc'")->fetch()) {
+    $pdo->exec('ALTER TABLE sectors ADD password_enc TEXT NULL');
+}
+
 $docRoot = realpath($_SERVER['DOCUMENT_ROOT'] ?? '') ?: '';
 $appRoot = realpath(__DIR__ . '/..');
 define('APP_URL', str_starts_with($appRoot, $docRoot) ? str_replace('\\', '/', substr($appRoot, strlen($docRoot))) : '');
@@ -149,7 +162,11 @@ function current_user(): ?array {
     static $u = false;
     if ($u === false) {
         $u = null;
-        if (!empty($_SESSION['uid'])) {
+        if (!empty($_SESSION['sector_id'])) {
+            $st = $pdo->prepare('SELECT id,name,email FROM sectors WHERE id=? AND password_hash IS NOT NULL');
+            $st->execute([$_SESSION['sector_id']]);
+            if ($sec = $st->fetch()) $u = ['id' => 0, 'name' => $sec['name'], 'email' => (string)$sec['email'], 'role' => 'user', 'sector_id' => (int)$sec['id']];
+        } elseif (!empty($_SESSION['uid'])) {
             $st = $pdo->prepare('SELECT id,name,email,role FROM users WHERE id=? AND active=1');
             $st->execute([$_SESSION['uid']]);
             $u = $st->fetch() ?: null;
@@ -174,9 +191,94 @@ function require_role(string ...$roles): array {
 function accessible_sectors(array $u): array {
     global $pdo;
     if ($u['role'] === 'admin') return $pdo->query('SELECT * FROM sectors ORDER BY name')->fetchAll();
+    if (!empty($u['sector_id'])) {
+        $st = $pdo->prepare('SELECT * FROM sectors WHERE id=?');
+        $st->execute([$u['sector_id']]);
+        return $st->fetchAll();
+    }
     $st = $pdo->prepare('SELECT s.* FROM sectors s JOIN sector_user su ON su.sector_id=s.id WHERE su.user_id=? ORDER BY s.name');
     $st->execute([$u['id']]);
     return $st->fetchAll();
+}
+
+// Reuse an issued-but-unsaved ID if one exists, otherwise issue a new one.
+function generate_sector_login_id(): string {
+    global $pdo;
+    $id = $pdo->query('SELECT login_id FROM sector_login_ids WHERE used=0 ORDER BY created_at, login_id LIMIT 1')->fetchColumn();
+    if ($id !== false) return $id;
+    $digits = '0123456789'; $letters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    $ins = $pdo->prepare('INSERT IGNORE INTO sector_login_ids (login_id) VALUES (?)');
+    for ($i = 0; $i < 100; $i++) {
+        $chars = [];
+        for ($j = 0; $j < 4; $j++) { $chars[] = $digits[random_int(0, 9)]; $chars[] = $letters[random_int(0, 51)]; }
+        for ($j = 7; $j > 0; $j--) { $k = random_int(0, $j); [$chars[$j], $chars[$k]] = [$chars[$k], $chars[$j]]; }
+        $id = implode('', $chars);
+        $ins->execute([$id]);
+        if ($ins->rowCount() === 1) return $id;
+    }
+    throw new RuntimeException('Could not generate a unique ID.');
+}
+
+// Admin-viewable sector passwords are stored encrypted with a key kept in a file outside the database.
+function sector_password_key(): string {
+    $f = __DIR__ . '/.sector_key';
+    if (!is_file($f)) { file_put_contents($f, bin2hex(random_bytes(32))); chmod($f, 0600); }
+    return hex2bin(trim(file_get_contents($f)));
+}
+function encrypt_sector_password(string $pw): string {
+    $iv = random_bytes(12);
+    $ct = openssl_encrypt($pw, 'aes-256-gcm', sector_password_key(), OPENSSL_RAW_DATA, $iv, $tag);
+    return base64_encode($iv . $tag . $ct);
+}
+function decrypt_sector_password(?string $enc): string {
+    $raw = $enc ? base64_decode($enc, true) : false;
+    if ($raw === false || strlen($raw) < 28) return '';
+    $pw = openssl_decrypt(substr($raw, 28), 'aes-256-gcm', sector_password_key(), OPENSSL_RAW_DATA, substr($raw, 0, 12), substr($raw, 12, 16));
+    return $pw === false ? '' : $pw;
+}
+
+// Validates the optional email, login ID and password of a sector form. Returns [error|null, email|null, loginId|null, hash|null, encrypted|null].
+function sector_login_input(int $sectorId = 0): array {
+    global $pdo;
+    $email = trim($_POST['email'] ?? '');
+    $loginId = trim($_POST['login_id'] ?? '');
+    $password = (string)($_POST['password'] ?? '');
+    if ($email === '' && $loginId === '') return ['Enter an email address or generate a login ID.'];
+    if ($email !== '') {
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($email) > 190) return ['Enter a valid email address.'];
+        $st = $pdo->prepare('SELECT (SELECT COUNT(*) FROM users WHERE email=?) + (SELECT COUNT(*) FROM sectors WHERE email=? AND id<>?)');
+        $st->execute([$email, $email, $sectorId]);
+        if ($st->fetchColumn()) return ['That email is already used for login.'];
+    }
+    if ($loginId !== '') {
+        if (!preg_match('/^[0-9A-Za-z]{8}$/', $loginId)) return ['Invalid login ID.'];
+        $st = $pdo->prepare('SELECT login_id FROM sectors WHERE login_id=? AND id<>?');
+        $st->execute([$loginId, $sectorId]);
+        if ($st->fetchColumn()) return ['That login ID is already in use.'];
+        $st = $pdo->prepare('SELECT used FROM sector_login_ids WHERE login_id=?');
+        $st->execute([$loginId]);
+        $row = $st->fetch();
+        $own = false;
+        if ($sectorId) {
+            $o = $pdo->prepare('SELECT 1 FROM sectors WHERE id=? AND login_id=?');
+            $o->execute([$sectorId, $loginId]);
+            $own = (bool)$o->fetchColumn();
+        }
+        if (!$own && (!$row || (int)$row['used'] === 1)) return ['Use the Generate button to create a valid login ID.'];
+    }
+    $hash = $enc = null;
+    if ($password !== '') {
+        if (strlen($password) < 8) return ['Password must be at least 8 characters.'];
+        $hash = password_hash($password, PASSWORD_DEFAULT);
+        $enc = encrypt_sector_password($password);
+    } elseif ($sectorId) {
+        $st = $pdo->prepare('SELECT password_hash FROM sectors WHERE id=?');
+        $st->execute([$sectorId]);
+        if (!$st->fetchColumn()) return ['Set a password for sector login.'];
+    } else {
+        return ['Set a password for sector login.'];
+    }
+    return [null, $email === '' ? null : $email, $loginId === '' ? null : $loginId, $hash, $enc];
 }
 
 function can_access_sector(array $u, int $sid): bool {

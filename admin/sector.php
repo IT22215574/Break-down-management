@@ -15,14 +15,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             require_edit_lock('sector', $id, 'admin/sector.php?id=' . $id);
             $name = trim($_POST['name'] ?? '');
             $phone = trim($_POST['phone'] ?? '');
-            $email = trim($_POST['email'] ?? '');
             $address = trim($_POST['address'] ?? '');
-            if ($name === '' || !preg_match('/^[0-9]{10}$/', $phone) || !filter_var($email, FILTER_VALIDATE_EMAIL) || $address === '' || mb_strlen($address) > 255) {
-                flash('Enter a sector name, a 10-digit phone number, and a valid email address, and an address.', 'error');
+            if ($name === '' || !preg_match('/^[0-9]{10}$/', $phone) || $address === '' || mb_strlen($address) > 255) {
+                flash('Enter a sector name, a 10-digit phone number, and an address.', 'error');
                 redirect('admin/sector.php?id=' . $id);
             }
-            $pdo->prepare('UPDATE sectors SET name=?, phone=?, email=?, address=?, description=? WHERE id=?')
-                ->execute([$name, $phone, $email, $address, trim($_POST['description'] ?? ''), $id]);
+            [$err, $email, $loginId, $hash, $enc] = sector_login_input($id);
+            if ($err) {
+                $pdo->rollBack();
+                flash($err, 'error');
+                redirect('admin/sector.php?id=' . $id);
+            }
+            $pdo->prepare('UPDATE sectors SET name=?, phone=?, email=?, login_id=?, password_hash=COALESCE(?, password_hash), password_enc=COALESCE(?, password_enc), address=?, description=? WHERE id=?')
+                ->execute([$name, $phone, $email, $loginId, $hash, $enc, $address, trim($_POST['description'] ?? ''), $id]);
+            if ($loginId !== null) $pdo->prepare('UPDATE sector_login_ids SET used=1 WHERE login_id=?')->execute([$loginId]);
             $pdo->prepare('DELETE FROM sector_user WHERE sector_id=?')->execute([$id]);
             $ins = $pdo->prepare('INSERT IGNORE INTO sector_user (sector_id,user_id) VALUES (?,?)');
             foreach ((array)($_POST['members'] ?? []) as $uid) $ins->execute([$id, (int)$uid]);
@@ -60,7 +66,10 @@ page_header($s['name'], $u);
   <div class="grid md:grid-cols-2 gap-3">
     <label class="text-sm">Name<input name="name" required maxlength="150" value="<?= e($s['name']) ?>" class="mt-1 w-full border rounded px-3 py-2"></label>
     <label class="text-sm">Phone number<input type="tel" name="phone" required minlength="10" maxlength="10" pattern="[0-9]{10}" inputmode="numeric" value="<?= e($s['phone'] ?? '') ?>" class="sector-phone mt-1 w-full border rounded px-3 py-2"></label>
-    <label class="text-sm">Email address<input type="email" name="email" required maxlength="190" value="<?= e($s['email'] ?? '') ?>" class="mt-1 w-full border rounded px-3 py-2"></label>
+    <label class="text-sm">Email address (optional if login ID is set)<input type="email" name="email" maxlength="190" value="<?= e($s['email'] ?? '') ?>" class="mt-1 w-full border rounded px-3 py-2"></label>
+    <div class="text-sm">Login ID (required without email)
+      <div class="mt-1 flex gap-2"><input name="login_id" readonly maxlength="8" value="<?= e($s['login_id'] ?? '') ?>" class="login-id w-full border rounded px-3 py-2 font-mono"><button type="button" id="gen-id" disabled class="bg-slate-700 text-white rounded px-3 text-sm disabled:opacity-50">Generate</button></div></div>
+    <label class="text-sm">Login password<span class="relative block"><input type="password" name="password" minlength="8" value="<?= e(decrypt_sector_password($s['password_enc'] ?? null)) ?>" autocomplete="new-password" placeholder="<?= !$s['password_hash'] ? 'Required' : ($s['password_enc'] ? 'Leave blank to keep current' : 'Not viewable - click Edit and set a new password') ?>" class="pr-10 mt-1 w-full border rounded px-3 py-2"><button type="button" class="pw-toggle absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-800" aria-label="Show password" aria-pressed="false"><svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/><path class="pw-slash hidden" d="M3 3l18 18"/></svg></button></span></label>
     <label class="text-sm">Address<input name="address" required maxlength="255" value="<?= e($s['address'] ?? '') ?>" class="mt-1 w-full border rounded px-3 py-2"></label>
     <label class="text-sm">Description<input name="description" value="<?= e($s['description']) ?>" class="mt-1 w-full border rounded px-3 py-2"></label>
   </div>
@@ -93,11 +102,18 @@ document.querySelectorAll('.sector-phone').forEach(input => {
   const texts = [...form.querySelectorAll('input:not([type=hidden]):not([type=checkbox])')];
   const boxes = [...form.querySelectorAll('input[type=checkbox]')];
   const initial = new Map([...texts, ...boxes].map(c => [c, c.type === 'checkbox' ? c.checked : c.value]));
+  const genBtn = document.getElementById('gen-id');
+  const idInput = form.querySelector('.login-id');
+  genBtn.addEventListener('click', async () => {
+    const r = await fetch('generate_id.php', {method: 'POST', body: new URLSearchParams({csrf: <?= json_encode(csrf_token()) ?>})});
+    if (r.ok) idInput.value = (await r.json()).id;
+  });
   let active = false;
   const setMode = on => {
     active = on;
     texts.forEach(t => { t.readOnly = !on; t.classList.toggle('bg-slate-50', !on); });
     boxes.forEach(b => { b.disabled = !on; });
+    genBtn.disabled = !on;
     actions.classList.toggle('hidden', !on);
     toggle.textContent = on ? 'Cancel' : 'Edit';
     toggle.classList.toggle('bg-emerald-600', !on); toggle.classList.toggle('hover:bg-emerald-700', !on);
@@ -120,5 +136,15 @@ document.querySelectorAll('.sector-phone').forEach(input => {
     if (active) { setMode(true); texts[0]?.focus(); }
   });
 })();
+</script>
+<script>
+document.querySelectorAll('.pw-toggle').forEach(btn => btn.addEventListener('click', () => {
+  const input = btn.parentElement.querySelector('input');
+  const show = input.type === 'password';
+  input.type = show ? 'text' : 'password';
+  btn.setAttribute('aria-pressed', show);
+  btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+  btn.querySelector('.pw-slash').classList.toggle('hidden', !show);
+}));
 </script>
 <?php page_footer();
