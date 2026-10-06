@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS breakdowns (
   company_id INT NULL,
   technician_id INT NULL,
   technician_required TINYINT(1) NOT NULL DEFAULT 0,
+  contact_phone VARCHAR(32) NULL,
   system_name VARCHAR(190) NOT NULL,
   description TEXT NULL,
   occurred_at DATETIME NOT NULL,
@@ -63,6 +64,14 @@ CREATE TABLE IF NOT EXISTS breakdowns (
   FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL,
   FOREIGN KEY (technician_id) REFERENCES technicians(id) ON DELETE SET NULL,
   FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS breakdown_technicians (
+  breakdown_id INT NOT NULL,
+  technician_id INT NOT NULL,
+  PRIMARY KEY (breakdown_id, technician_id),
+  FOREIGN KEY (breakdown_id) REFERENCES breakdowns(id) ON DELETE CASCADE,
+  FOREIGN KEY (technician_id) REFERENCES technicians(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS edit_locks (

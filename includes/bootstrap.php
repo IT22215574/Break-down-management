@@ -40,6 +40,18 @@ if (!$pdo->query("SHOW COLUMNS FROM breakdowns LIKE 'technician_id'")->fetch()) 
 if (!$pdo->query("SHOW COLUMNS FROM breakdowns LIKE 'technician_required'")->fetch()) {
     $pdo->exec('ALTER TABLE breakdowns ADD technician_required TINYINT(1) NOT NULL DEFAULT 0');
 }
+if (!$pdo->query("SHOW COLUMNS FROM breakdowns LIKE 'contact_phone'")->fetch()) {
+    $pdo->exec('ALTER TABLE breakdowns ADD contact_phone VARCHAR(32) NULL');
+}
+if (!$pdo->query("SHOW TABLES LIKE 'breakdown_technicians'")->fetch()) {
+    $pdo->exec('CREATE TABLE breakdown_technicians (
+        breakdown_id INT NOT NULL,
+        technician_id INT NOT NULL,
+        PRIMARY KEY (breakdown_id, technician_id),
+        FOREIGN KEY (breakdown_id) REFERENCES breakdowns(id) ON DELETE CASCADE,
+        FOREIGN KEY (technician_id) REFERENCES technicians(id) ON DELETE CASCADE) ENGINE=InnoDB');
+    $pdo->exec('INSERT INTO breakdown_technicians (breakdown_id, technician_id) SELECT id, technician_id FROM breakdowns WHERE technician_id IS NOT NULL');
+}
 $pdo->exec('CREATE TABLE IF NOT EXISTS edit_locks (
     resource_type VARCHAR(32) NOT NULL,
     resource_id INT NOT NULL,
@@ -194,10 +206,10 @@ function fetch_breakdowns(array $u, array $f): array {
     if (!empty($f['from'])) { $where[] = 'b.occurred_at >= ?'; $p[] = $f['from'] . ' 00:00:00'; }
     if (!empty($f['to'])) { $where[] = 'b.occurred_at <= ?'; $p[] = $f['to'] . ' 23:59:59'; }
     if (!empty($f['q'])) {
-        $where[] = '(b.system_name LIKE ? OR c.name LIKE ? OR b.client_name LIKE ? OR b.fixed_by LIKE ? OR b.note LIKE ?)';
-        $like = '%' . addcslashes($f['q'], '%_\\') . '%'; array_push($p, $like, $like, $like, $like, $like);
+        $where[] = '(b.system_name LIKE ? OR c.name LIKE ? OR b.client_name LIKE ? OR b.contact_phone LIKE ? OR b.fixed_by LIKE ? OR b.note LIKE ?)';
+        $like = '%' . addcslashes($f['q'], '%_\\') . '%'; array_push($p, $like, $like, $like, $like, $like, $like);
     }
-    $st = $pdo->prepare('SELECT b.*, s.name AS sector_name, c.name AS company_name, t.name AS technician_name FROM breakdowns b JOIN sectors s ON s.id=b.sector_id LEFT JOIN companies c ON c.id=b.company_id LEFT JOIN technicians t ON t.id=b.technician_id WHERE '
+    $st = $pdo->prepare('SELECT b.*, s.name AS sector_name, c.name AS company_name, (SELECT GROUP_CONCAT(t.name ORDER BY t.name SEPARATOR \', \') FROM breakdown_technicians bt JOIN technicians t ON t.id=bt.technician_id WHERE bt.breakdown_id=b.id) AS technician_name FROM breakdowns b JOIN sectors s ON s.id=b.sector_id LEFT JOIN companies c ON c.id=b.company_id WHERE '
         . implode(' AND ', $where) . ' ORDER BY b.occurred_at DESC, b.id DESC');
     $st->execute($p);
     return $st->fetchAll();
@@ -326,8 +338,21 @@ function page_footer(): void {
       status.textContent = 'Waiting to edit this item...';
       let waited = false;
       while (true) {
+        if (form.dataset.lockCancel === '1') {
+          delete form.dataset.lockCancel;
+          setDisabled(form, false);
+          status.textContent = '';
+          return null;
+        }
         try {
           const result = await request('acquire', form, token);
+          if (result.acquired && form.dataset.lockCancel === '1') {
+            delete form.dataset.lockCancel;
+            await request('release', form, result.token).catch(() => {});
+            setDisabled(form, false);
+            status.textContent = '';
+            return null;
+          }
           if (result.acquired) {
             form.dataset.lockToken = result.token;
             const refreshKey = 'edit-lock-refresh:' + lockKey(form);
@@ -387,7 +412,7 @@ function page_footer(): void {
   });
   forms.forEach(form => {
     form.addEventListener('focusin', () => {
-      if (!form.dataset.lockToken) acquire(form);
+      if (!form.dataset.lockToken && form.dataset.editLockManual !== 'true') acquire(form);
     });
     form.addEventListener('submit', async event => {
       if (form.dataset.lockSubmitting === '1' || event.defaultPrevented) return;
@@ -441,6 +466,20 @@ function page_footer(): void {
       });
       navigator.sendBeacon(endpoint, new Blob([body], {type: 'application/x-www-form-urlencoded'}));
     });
+  });
+})();
+// Clear 10-digit requirement messages for phone fields.
+(function () {
+  const sel = 'input[type="tel"][pattern="[0-9]{10}"]';
+  document.addEventListener('invalid', e => {
+    if (!e.target.matches(sel)) return;
+    const n = e.target.value.length;
+    e.target.setCustomValidity(n === 0
+      ? 'Enter a 10-digit phone number.'
+      : 'Phone number must be exactly 10 digits. You entered ' + n + ' digit' + (n === 1 ? '' : 's') + '.');
+  }, true);
+  document.addEventListener('input', e => {
+    if (e.target.matches(sel)) e.target.setCustomValidity('');
   });
 })();
 </script>
@@ -529,18 +568,18 @@ function render_records(array $u, string $action): void {
 function records_table(array $rows, bool $actions = false): void { ?>
 <div class="bg-white rounded shadow overflow-x-auto"><table class="w-full text-sm">
 <thead class="bg-slate-50 text-left text-xs uppercase text-slate-500"><tr>
-  <th class="p-3">Date &amp; time</th><th class="p-3">Sector</th><th class="p-3">Company</th><th class="p-3">System</th><th class="p-3">Client</th>
+  <th class="p-3">Date &amp; time</th><th class="p-3">Sector</th><th class="p-3">Company</th><th class="p-3">System</th><th class="p-3">Client</th><th class="p-3">Phone</th>
   <th class="p-3">Fixed by</th><th class="p-3">Status</th><th class="p-3">Technician</th><th class="p-3">Note</th><?php if ($actions): ?><th class="p-3"></th><?php endif; ?></tr></thead><tbody>
 <?php foreach ($rows as $r): ?><tr class="border-t align-top">
   <td class="p-3 whitespace-nowrap"><?= e(date('Y-m-d H:i', strtotime($r['occurred_at']))) ?></td>
   <td class="p-3"><?= e($r['sector_name']) ?></td><td class="p-3"><?= e($r['company_name'] ?? '') ?></td>
   <td class="p-3"><div class="font-medium"><?= e($r['system_name']) ?></div><div class="text-slate-500"><?= nl2br(e($r['description'])) ?></div></td>
-  <td class="p-3"><?= e($r['client_name']) ?></td><td class="p-3"><?= e($r['fixed_by']) ?></td>
+  <td class="p-3"><?= e($r['client_name']) ?></td><td class="p-3"><?= e($r['contact_phone'] ?? '') ?></td><td class="p-3"><?= e($r['fixed_by']) ?></td>
   <td class="p-3"><?= status_badge($r['status']) ?></td>
   <td class="p-3"><?= !empty($r['technician_required']) ? e($r['technician_name'] ?? 'Not assigned') : '—' ?></td>
   <td class="p-3"><?= nl2br(e($r['note'])) ?></td>
-  <?php if ($actions): ?><td class="p-3 whitespace-nowrap"><a class="text-blue-600" href="<?= url('support/edit.php?id=' . $r['id']) ?>">Edit</a></td><?php endif; ?>
-</tr><?php endforeach; if (!$rows): ?><tr><td colspan="<?= $actions ? 10 : 9 ?>" class="p-6 text-center text-slate-500">No breakdowns found.</td></tr><?php endif; ?>
+  <?php if ($actions): ?><td class="p-3 whitespace-nowrap"><a class="bg-emerald-600 hover:bg-emerald-700 text-white rounded px-3 py-1 text-xs" href="<?= url('support/edit.php?id=' . $r['id']) ?>">Edit</a></td><?php endif; ?>
+</tr><?php endforeach; if (!$rows): ?><tr><td colspan="<?= $actions ? 11 : 10 ?>" class="p-6 text-center text-slate-500">No breakdowns found.</td></tr><?php endif; ?>
 </tbody></table></div>
 <?php }
 
@@ -551,8 +590,8 @@ function records_cards(array $rows, array $u): void { ?>
   <div class="flex flex-wrap items-center justify-between gap-3 bg-white rounded shadow px-4 py-3">
     <a href="<?= url('breakdown.php?id=' . (int)$r['id']) ?>" class="min-w-0 flex-1 hover:text-blue-700">
       <div class="font-semibold truncate"><?= e($r['system_name']) ?></div>
-      <div class="text-sm text-slate-500 truncate"><?= e($r['sector_name']) ?> &middot; <?= e($r['company_name'] ?? 'No company') ?> &middot; <?= e(date('Y-m-d H:i', strtotime($r['occurred_at']))) ?><?php if (!empty($r['technician_required'])): ?> &middot; Technician: <?= e($r['technician_name'] ?? 'Not assigned') ?><?php endif; ?></div>
-      <div class="text-sm text-slate-500">Client: <?= e($r['client_name']) ?> &middot; Fixed by: <?= e($r['fixed_by']) ?></div>
+      <div class="text-sm text-slate-500 truncate"><?= e($r['sector_name']) ?> &middot; <?= e($r['company_name'] ?? 'No company') ?> &middot; <?= e(date('Y-m-d H:i', strtotime($r['occurred_at']))) ?><?php if (!empty($r['technician_required'])): ?> &middot; Technicians: <?= e($r['technician_name'] ?? 'Not assigned') ?><?php endif; ?></div>
+      <div class="text-sm text-slate-500">Client: <?= e($r['client_name']) ?><?php if (!empty($r['contact_phone'])): ?> (<?= e($r['contact_phone']) ?>)<?php endif; ?> &middot; Fixed by: <?= e($r['fixed_by']) ?></div>
       <div class="mt-1"><?= status_badge($r['status']) ?></div>
     </a>
     <?php if ($u['role'] === 'admin' && !empty($r['technician_required'])): ?>

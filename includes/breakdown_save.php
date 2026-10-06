@@ -12,6 +12,35 @@ function active_technician_exists(int $id): bool {
     return (bool)$st->fetchColumn();
 }
 
+function breakdown_technician_ids(int $breakdownId): array {
+    global $pdo;
+    $st = $pdo->prepare('SELECT technician_id FROM breakdown_technicians WHERE breakdown_id=?');
+    $st->execute([$breakdownId]);
+    return array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
+}
+
+// Replaces the technicians assigned to a breakdown.
+function save_breakdown_technicians(int $breakdownId, array $ids): void {
+    global $pdo;
+    $pdo->prepare('DELETE FROM breakdown_technicians WHERE breakdown_id=?')->execute([$breakdownId]);
+    $ins = $pdo->prepare('INSERT INTO breakdown_technicians (breakdown_id, technician_id) VALUES (?,?)');
+    foreach ($ids as $tid) $ins->execute([$breakdownId, $tid]);
+}
+
+// Unique positive ids from a submitted list.
+function read_technician_ids($raw): array {
+    return array_values(array_unique(array_filter(array_map('intval', (array)$raw), fn($i) => $i > 0)));
+}
+
+function read_contact_phone($raw): ?string {
+    $v = trim((string)$raw);
+    return $v === '' ? null : $v;
+}
+
+function valid_contact_phone(?string $v): bool {
+    return $v === null || preg_match('/^[0-9]{10}$/', $v) === 1;
+}
+
 // Validates POST data; returns [data|null, error|null].
 function read_breakdown_post(array $u): array {
     $d = [];
@@ -25,12 +54,12 @@ function read_breakdown_post(array $u): array {
     $d['status'] = $_POST['status'] ?? '';
     if ($u['role'] === 'admin') {
         $d['technician_required'] = !empty($_POST['technician_required']) ? 1 : 0;
-        $d['technician_id'] = (int)($_POST['technician_id'] ?? 0) ?: null;
-        if ($d['technician_required'] && (!$d['technician_id'] || !active_technician_exists($d['technician_id']))) {
-            return [null, 'Select an active technician when a technician is required.'];
-        }
-        if (!$d['technician_required']) $d['technician_id'] = null;
+        $d['technician_ids'] = $d['technician_required'] ? read_technician_ids($_POST['technician_ids'] ?? []) : [];
+        if ($d['technician_required'] && !$d['technician_ids']) return [null, 'Select at least one active technician when a technician is required.'];
+        foreach ($d['technician_ids'] as $tid) if (!active_technician_exists($tid)) return [null, 'Select active technicians only.'];
     }
+    $d['contact_phone'] = read_contact_phone($_POST['contact_phone'] ?? '');
+    if (!valid_contact_phone($d['contact_phone'])) return [null, 'Enter a valid 10-digit contact mobile number.'];
     $t = DateTime::createFromFormat('Y-m-d\TH:i', (string)($_POST['occurred_at'] ?? ''));
     if (!$t) return [null, 'Enter a valid date and time.'];
     $d['occurred_at'] = $t->format('Y-m-d H:i:s');
@@ -64,14 +93,19 @@ function handle_breakdown_create(array $u, string $back): void {
         }
         if ($u['role'] === 'admin') {
             $r['technician_required'] = !empty($e['technician_required']) ? 1 : 0;
-            $r['technician_id'] = (int)($e['technician_id'] ?? 0) ?: null;
-            if ($r['technician_required'] && (!$r['technician_id'] || !active_technician_exists($r['technician_id']))) {
-                flash('Form #' . ((int)$i + 1) . ': select an active technician when one is required.', 'error'); redirect($back);
+            $r['technician_ids'] = $r['technician_required'] ? read_technician_ids($e['technician_ids'] ?? []) : [];
+            $valid = (bool)$r['technician_ids'] || !$r['technician_required'];
+            foreach ($r['technician_ids'] as $tid) if (!active_technician_exists($tid)) $valid = false;
+            if (!$valid) {
+                flash('Form #' . ((int)$i + 1) . ': select at least one active technician when one is required.', 'error'); redirect($back);
             }
-            if (!$r['technician_required']) $r['technician_id'] = null;
         } else {
             $r['technician_required'] = 0;
-            $r['technician_id'] = null;
+            $r['technician_ids'] = [];
+        }
+        $r['contact_phone'] = read_contact_phone($e['contact_phone'] ?? '');
+        if (!valid_contact_phone($r['contact_phone'])) {
+            flash('Form #' . ((int)$i + 1) . ': enter a valid 10-digit contact mobile number.', 'error'); redirect($back);
         }
         $t = DateTime::createFromFormat('Y-m-d\TH:i', (string)($e['occurred_at'] ?? ''));
         if (!$r['company_id'] && $hasCompanies) $t = false;
@@ -84,9 +118,12 @@ function handle_breakdown_create(array $u, string $back): void {
     }
     if (!$rows) { flash('Fill in at least one form.', 'error'); redirect($back); }
     $pdo->beginTransaction();
-    $ins = $pdo->prepare('INSERT INTO breakdowns (sector_id,company_id,system_name,description,occurred_at,fixed_by,client_name,status,note,created_by,technician_id,technician_required)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');
-    foreach ($rows as $r) $ins->execute([$sid, $r['company_id'], $r['system_name'], $r['description'], $r['occurred_at'], $r['fixed_by'], $r['client_name'], $r['status'], $r['note'], $u['id'], $r['technician_id'], $r['technician_required']]);
+    $ins = $pdo->prepare('INSERT INTO breakdowns (sector_id,company_id,system_name,description,occurred_at,fixed_by,client_name,status,note,created_by,technician_id,technician_required,contact_phone)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)');
+    foreach ($rows as $r) {
+        $ins->execute([$sid, $r['company_id'], $r['system_name'], $r['description'], $r['occurred_at'], $r['fixed_by'], $r['client_name'], $r['status'], $r['note'], $u['id'], $r['technician_ids'][0] ?? null, $r['technician_required'], $r['contact_phone']]);
+        save_breakdown_technicians((int)$pdo->lastInsertId(), $r['technician_ids']);
+    }
     $pdo->commit();
     flash(count($rows) . ' breakdown record(s) saved.');
     redirect($back);

@@ -4,7 +4,7 @@ $u = current_user();
 if (!$u) redirect('login.php');
 $f = filters_from_request();
 $rows = fetch_breakdowns($u, $f);
-$head = ['ID', 'Date & time', 'Sector', 'Company', 'System', 'Description', 'Client', 'Fixed by', 'Status', 'Technician', 'Note'];
+$head = ['ID', 'Date & time', 'Sector', 'Company', 'System', 'Description', 'Client', 'Contact number', 'Fixed by', 'Status', 'Technicians', 'Note'];
 
 if (($_GET['format'] ?? '') === 'print') {
     page_header('Breakdown report');
@@ -24,5 +24,5 @@ $safe = fn($v) => preg_match('/^[=+\-@\t\r]/', (string)$v) ? "'" . $v : $v;
 fputcsv($out, $head, ',', '"', '');
 foreach ($rows as $r) {
     fputcsv($out, array_map($safe, [$r['id'], $r['occurred_at'], $r['sector_name'], $r['company_name'], $r['system_name'], $r['description'],
-        $r['client_name'], $r['fixed_by'], STATUSES[$r['status']], !empty($r['technician_required']) ? ($r['technician_name'] ?? 'Not assigned') : '', $r['note']]), ',', '"', '');
+        $r['client_name'], $r['contact_phone'] ?? '', $r['fixed_by'], STATUSES[$r['status']], !empty($r['technician_required']) ? ($r['technician_name'] ?? 'Not assigned') : '', $r['note']]), ',', '"', '');
 }

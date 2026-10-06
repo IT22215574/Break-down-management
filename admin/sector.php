@@ -51,8 +51,12 @@ $people = $pdo->query("SELECT id,name,email,role FROM users WHERE role IN ('supp
 page_header($s['name'], $u);
 ?>
 <a href="index.php" class="text-sm text-blue-600">&larr; Back to sectors</a>
-<h1 class="text-2xl font-bold my-4"><?= e($s['name']) ?></h1>
-<form method="post" class="bg-white rounded shadow p-4" data-edit-lock="sector" data-edit-lock-id="<?= $id ?>" data-edit-lock-on-load="true"><?= csrf_field() ?><input type="hidden" name="id" value="<?= $id ?>">
+<div class="flex items-center justify-between my-4">
+  <h1 class="text-2xl font-bold"><?= e($s['name']) ?></h1>
+  <button type="button" id="sector-toggle" class="bg-emerald-600 hover:bg-emerald-700 text-white rounded px-3 py-1.5 text-sm">Edit</button>
+</div>
+<form id="sector-form" method="post" class="bg-white rounded shadow p-4" data-edit-lock="sector" data-edit-lock-id="<?= $id ?>" data-edit-lock-manual="true"><?= csrf_field() ?><input type="hidden" name="id" value="<?= $id ?>">
+  <p data-edit-lock-status class="mb-3 rounded bg-amber-100 px-3 py-2 text-sm text-amber-900 empty:hidden" role="status"></p>
   <div class="grid md:grid-cols-2 gap-3">
     <label class="text-sm">Name<input name="name" required maxlength="150" value="<?= e($s['name']) ?>" class="mt-1 w-full border rounded px-3 py-2"></label>
     <label class="text-sm">Phone number<input type="tel" name="phone" required minlength="10" maxlength="10" pattern="[0-9]{10}" inputmode="numeric" value="<?= e($s['phone'] ?? '') ?>" class="sector-phone mt-1 w-full border rounded px-3 py-2"></label>
@@ -68,8 +72,10 @@ page_header($s['name'], $u);
     <?php endforeach; if (!$people): ?><span class="text-slate-500">Create users first.</span><?php endif; ?>
   </div>
   <div class="mt-4 flex gap-2 items-center">
+    <span id="sector-actions" class="flex gap-2 items-center hidden">
     <button name="action" value="update" class="bg-blue-600 text-white rounded px-3 py-1.5 text-sm">Save changes</button>
     <button name="action" value="delete" formnovalidate onclick="return confirm('Delete this sector and its <?= (int)$s['cnt'] ?> breakdown record(s)?')" class="bg-red-600 text-white rounded px-3 py-1.5 text-sm">Delete</button>
+    </span>
     <span class="text-xs text-slate-500"><?= (int)$s['cnt'] ?> record(s)</span>
   </div>
 </form>
@@ -79,5 +85,40 @@ document.querySelectorAll('.sector-phone').forEach(input => {
     input.value = input.value.replace(/\D/g, '').slice(0, 10);
   });
 });
+</script>
+<script>
+(function () {
+  const form = document.getElementById('sector-form'), toggle = document.getElementById('sector-toggle');
+  const actions = document.getElementById('sector-actions');
+  const texts = [...form.querySelectorAll('input:not([type=hidden]):not([type=checkbox])')];
+  const boxes = [...form.querySelectorAll('input[type=checkbox]')];
+  const initial = new Map([...texts, ...boxes].map(c => [c, c.type === 'checkbox' ? c.checked : c.value]));
+  let active = false;
+  const setMode = on => {
+    active = on;
+    texts.forEach(t => { t.readOnly = !on; t.classList.toggle('bg-slate-50', !on); });
+    boxes.forEach(b => { b.disabled = !on; });
+    actions.classList.toggle('hidden', !on);
+    toggle.textContent = on ? 'Cancel' : 'Edit';
+    toggle.classList.toggle('bg-emerald-600', !on); toggle.classList.toggle('hover:bg-emerald-700', !on);
+    toggle.classList.toggle('bg-amber-500', on); toggle.classList.toggle('hover:bg-amber-600', on);
+  };
+  setMode(false);
+  toggle.addEventListener('click', async () => {
+    if (active) {
+      form.dataset.lockCancel = '1';
+      if (form.dataset.lockToken) { delete form.dataset.lockCancel; await window.EditLocks.release(form); }
+      initial.forEach((v, c) => { if (c.type === 'checkbox') c.checked = v; else c.value = v; });
+      const note = form.querySelector('[data-edit-lock-status]');
+      if (note) note.textContent = '';
+      setMode(false);
+      return;
+    }
+    delete form.dataset.lockCancel;
+    setMode(true);
+    if (!await window.EditLocks.acquire(form)) { setMode(false); return; }
+    if (active) { setMode(true); texts[0]?.focus(); }
+  });
+})();
 </script>
 <?php page_footer();

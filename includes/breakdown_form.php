@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/technician_picker.php';
 // Expects $row (array), $sectors, $heading, $submit.
 $cls = 'mt-1 w-full border rounded px-3 py-2';
 $clientName = person_name_parts((string)$row['client_name']);
@@ -15,6 +16,7 @@ $fixedByName = person_name_parts((string)$row['fixed_by']);
   <label class="text-sm">Contacted by (client side)<div class="mt-1 flex gap-1">
     <select name="client_title" class="border rounded px-2 py-2"><?php foreach (PERSON_NAME_TITLES as $value => $title): ?><option value="<?= e($value) ?>" <?= $clientName[0] === $value ? 'selected' : '' ?>><?= e($title) ?></option><?php endforeach; ?></select>
     <input name="client_name" required maxlength="138" value="<?= e($clientName[1]) ?>" class="<?= $cls ?> mt-0"></div></label>
+  <label class="text-sm">Contact mobile number<input type="tel" name="contact_phone" minlength="10" maxlength="10" pattern="[0-9]{10}" inputmode="numeric" title="Enter exactly 10 digits" placeholder="e.g. 0771234567" value="<?= e($row['contact_phone'] ?? '') ?>" class="<?= $cls ?>"></label>
   <label class="text-sm">Fixed by (company side)<div class="mt-1 flex gap-1">
     <select name="fixed_by_title" class="border rounded px-2 py-2"><?php foreach (PERSON_NAME_TITLES as $value => $title): ?><option value="<?= e($value) ?>" <?= $fixedByName[0] === $value ? 'selected' : '' ?>><?= e($title) ?></option><?php endforeach; ?></select>
     <input name="fixed_by" required maxlength="138" value="<?= e($fixedByName[1]) ?>" class="<?= $cls ?> mt-0"></div></label>
@@ -22,27 +24,31 @@ $fixedByName = person_name_parts((string)$row['fixed_by']);
     <?php foreach (STATUSES as $k => $l): ?><option value="<?= $k ?>" <?= $row['status'] === $k ? 'selected' : '' ?>><?= $l ?></option><?php endforeach; ?></select></label>
   <?php if ($u['role'] === 'admin'): ?>
   <label class="text-sm flex items-center gap-2"><input id="technician-required" type="checkbox" name="technician_required" value="1" <?= !empty($row['technician_required']) ? 'checked' : '' ?>> Technician required (for non-online issues)</label>
-  <label id="technician-select-wrap" class="text-sm <?= empty($row['technician_required']) ? 'hidden' : '' ?>">Assign technician<select id="technician-select" name="technician_id" class="<?= $cls ?>">
-    <option value="">Select a technician</option>
-    <?php foreach ($technicians as $technician): ?><option value="<?= (int)$technician['id'] ?>" <?= (int)($row['technician_id'] ?? 0) === (int)$technician['id'] ? 'selected' : '' ?>><?= e($technician['name']) ?> (<?= e($technician['phone'] ?? '') ?>)</option><?php endforeach; ?>
-  </select><?php if (!$technicians): ?><span class="text-xs text-slate-500">Add a technician before assigning one.</span><?php endif; ?></label>
+  <div id="technician-select-wrap" class="text-sm md:col-span-2 <?= empty($row['technician_required']) ? 'hidden' : '' ?>">Assign technicians
+    <?php technician_picker($technicians, $row['technician_ids'] ?? [], 'technician_ids[]'); ?></div>
   <?php endif; ?>
   <label class="text-sm md:col-span-3">Description<textarea name="description" rows="2" class="<?= $cls ?>"><?= e($row['description']) ?></textarea></label>
   <label class="text-sm md:col-span-3">Note (what was done to fix it)<textarea name="note" rows="3" class="<?= $cls ?>"><?= e($row['note']) ?></textarea></label>
-  <div class="md:col-span-3 flex gap-2"><button class="bg-slate-900 text-white rounded px-4 py-2"><?= e($submit) ?></button>
+  <div class="md:col-span-3 flex gap-2"><button class="bg-blue-600 hover:bg-blue-700 text-white rounded px-4 py-2"><?= e($submit) ?></button>
+    <?php if (!empty($cancelUrl)): ?><a href="<?= e($cancelUrl) ?>" class="bg-amber-500 hover:bg-amber-600 text-white rounded px-4 py-2">Cancel</a><?php endif; ?>
     <?php if (!empty($row['id'])): ?><button name="delete" value="1" formnovalidate onclick="return confirm('Delete this record?')" class="bg-red-600 text-white rounded px-4 py-2">Delete</button><?php endif; ?></div>
 </form>
 <?php if ($u['role'] === 'admin'): ?>
+<?php technician_picker_script(); ?>
 <script>
+document.addEventListener('input', e => {
+  if (e.target.matches('[name="contact_phone"], [data-n="contact_phone"]')) e.target.value = e.target.value.replace(/\D/g, '').slice(0, 10);
+});
 (function () {
   const required = document.getElementById('technician-required');
   const selector = document.getElementById('technician-select-wrap');
-  const technician = document.getElementById('technician-select');
-  required.addEventListener('change', () => {
+  const picker = selector.querySelector('.tech-picker');
+  const sync = () => {
     selector.classList.toggle('hidden', !required.checked);
-    technician.required = required.checked;
-  });
-  technician.required = required.checked;
+    window.techPickerRequired(picker, required.checked);
+  };
+  required.addEventListener('change', sync);
+  sync();
 })();
 </script>
 <?php endif; ?>
