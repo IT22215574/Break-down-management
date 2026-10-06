@@ -71,9 +71,9 @@ document.addEventListener('input', e => {
           const title = el.querySelector('[data-n="client_title"]').value;
           const contactName = el.querySelector('[data-n="client_name"]').value;
           quoteUrl.searchParams.set('contact_name', title ? title + '. ' + contactName : contactName);
+          quoteUrl.searchParams.set('contact_phone', el.querySelector('[data-n="contact_phone"]').value);
           quoteUrl.searchParams.set('machine_model', el.querySelector('[data-n="system_name"]').value);
           quoteUrl.searchParams.set('breakdown', el.querySelector('[data-n="description"]').value);
-          quoteUrl.searchParams.set('remark', el.querySelector('[data-n="note"]').value);
           window.open(quoteUrl.toString(), '_blank', 'noopener');
         };
       }

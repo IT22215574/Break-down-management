@@ -66,6 +66,22 @@ $pdo->exec('CREATE TABLE IF NOT EXISTS machines (
     model_code VARCHAR(120) NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB');
+$pdo->exec('CREATE TABLE IF NOT EXISTS accessories (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(120) NOT NULL,
+    brand VARCHAR(120) NULL,
+    price DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB');
+if (!$pdo->query("SHOW COLUMNS FROM accessories LIKE 'brand'")->fetch()) {
+    $pdo->exec('ALTER TABLE accessories ADD brand VARCHAR(120) NULL AFTER name');
+}
+$pdo->exec('CREATE TABLE IF NOT EXISTS accessory_brand_tags (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(120) NOT NULL UNIQUE,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB');
+$pdo->exec('INSERT IGNORE INTO accessory_brand_tags (name) SELECT DISTINCT brand FROM accessories WHERE brand IS NOT NULL AND brand <> \'\'');
 $pdo->exec('CREATE TABLE IF NOT EXISTS edit_locks (
     resource_type VARCHAR(32) NOT NULL,
     resource_id INT NOT NULL,
@@ -342,7 +358,7 @@ function page_header(string $title, ?array $u = null): void {
     $f = flash();
     $nav = [];
     if ($u) {
-        if ($u['role'] === 'admin') $nav = ['admin/index.php' => 'Sectors', 'admin/companies.php' => 'Company', 'admin/users.php' => 'Users', 'admin/technicians.php' => 'Technicians', 'admin/machines.php' => 'Machines', 'admin/records.php' => 'Breakdowns'];
+        if ($u['role'] === 'admin') $nav = ['admin/index.php' => 'Sectors', 'admin/companies.php' => 'Company', 'admin/users.php' => 'Users', 'admin/technicians.php' => 'Technicians', 'admin/machines.php' => 'Machines', 'admin/accessories.php' => 'Accessories', 'admin/records.php' => 'Breakdowns'];
         if ($u['role'] === 'support') $nav = ['support/index.php' => 'My sectors'];
         if ($u['role'] === 'user') $nav = ['user/index.php' => 'Breakdowns'];
     }
@@ -711,7 +727,7 @@ function records_cards(array $rows, array $u): void { ?>
       <div class="mt-1"><?= status_badge($r['status']) ?></div>
     </a>
     <?php if ($u['role'] === 'admin' && !empty($r['technician_required'])): ?>
-      <a href="<?= url('quotation.php?breakdown_id=' . (int)$r['id']) ?>" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-2 text-sm whitespace-nowrap">Make Quotations</a>
+      <a href="<?= url('quotation.php?breakdown_id=' . (int)$r['id']) ?>" target="_blank" rel="noopener" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-2 text-sm whitespace-nowrap">Make Quotations</a>
     <?php endif; ?>
   </div>
 <?php endforeach; if (!$rows): ?><p class="text-slate-500">No breakdowns found.</p><?php endif; ?>
