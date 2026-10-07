@@ -88,6 +88,12 @@ $pdo->exec('CREATE TABLE IF NOT EXISTS accessory_brand_tags (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB');
 $pdo->exec('INSERT IGNORE INTO accessory_brand_tags (name) SELECT DISTINCT brand FROM accessories WHERE brand IS NOT NULL AND brand <> \'\'');
+$pdo->exec('CREATE TABLE IF NOT EXISTS accessory_name_tags (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(120) NOT NULL UNIQUE,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB');
+$pdo->exec('INSERT IGNORE INTO accessory_name_tags (name) SELECT DISTINCT name FROM accessories WHERE name <> \'\'');
 $pdo->exec('CREATE TABLE IF NOT EXISTS quotations (
     id INT AUTO_INCREMENT PRIMARY KEY,
     breakdown_id INT NULL,
