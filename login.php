@@ -5,8 +5,8 @@ $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
     $email = trim($_POST['email'] ?? '');
-    $st = $pdo->prepare('SELECT * FROM users WHERE email=? AND active=1');
-    $st->execute([$email]);
+    $st = $pdo->prepare('SELECT * FROM users WHERE (email=? OR login_id=?) AND active=1');
+    $st->execute([$email, $email]);
     $row = $st->fetch();
     $sector = null;
     if (!$row) {

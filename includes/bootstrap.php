@@ -271,6 +271,22 @@ function generate_sector_login_id(): string {
     throw new RuntimeException('Could not generate a unique ID.');
 }
 
+function generate_user_login_id(): string {
+    global $pdo;
+    $id = $pdo->query("SELECT login_id FROM user_login_ids WHERE used=0 AND login_id REGEXP '[0-9].*[0-9]' ORDER BY created_at, login_id LIMIT 1")->fetchColumn();
+    if ($id !== false) return $id;
+    $alphabet = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    $ins = $pdo->prepare('INSERT IGNORE INTO user_login_ids (login_id) VALUES (?)');
+    for ($i = 0; $i < 100; $i++) {
+        $id = '';
+        for ($j = 0; $j < 4; $j++) $id .= $alphabet[random_int(0, 61)];
+        if (preg_match_all('/[0-9]/', $id) < 2) continue;
+        $ins->execute([$id]);
+        if ($ins->rowCount() === 1) return $id;
+    }
+    throw new RuntimeException('Could not generate a unique ID.');
+}
+
 // Admin-viewable sector passwords are stored encrypted with a key kept in a file outside the database.
 function sector_password_key(): string {
     $f = __DIR__ . '/.sector_key';
@@ -282,6 +298,21 @@ function encrypt_sector_password(string $pw): string {
     $ct = openssl_encrypt($pw, 'aes-256-gcm', sector_password_key(), OPENSSL_RAW_DATA, $iv, $tag);
     return base64_encode($iv . $tag . $ct);
 }
+// User login: mandatory 4-character ID (digits, lowercase, uppercase); email is optional.
+$pdo->exec("CREATE TABLE IF NOT EXISTS user_login_ids (
+    login_id VARCHAR(4) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL PRIMARY KEY,
+    used TINYINT(1) NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB");
+if (!$pdo->query("SHOW COLUMNS FROM users LIKE 'login_id'")->fetch()) {
+    $pdo->exec("ALTER TABLE users ADD login_id VARCHAR(4) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL UNIQUE, MODIFY email VARCHAR(190) NULL");
+}
+foreach ($pdo->query('SELECT id FROM users WHERE login_id IS NULL')->fetchAll(PDO::FETCH_COLUMN) as $uid) {
+    $lid = generate_user_login_id();
+    $pdo->prepare('UPDATE users SET login_id=? WHERE id=?')->execute([$lid, $uid]);
+    $pdo->prepare('UPDATE user_login_ids SET used=1 WHERE login_id=?')->execute([$lid]);
+}
+
 function decrypt_sector_password(?string $enc): string {
     $raw = $enc ? base64_decode($enc, true) : false;
     if ($raw === false || strlen($raw) < 28) return '';
