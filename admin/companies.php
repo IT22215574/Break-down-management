@@ -39,7 +39,7 @@ page_header('Company', $u);
 <form method="post" class="bg-white rounded shadow p-4 mb-6 flex gap-3 items-end">
   <?= csrf_field() ?><input type="hidden" name="action" value="create">
   <label class="text-sm flex-1">Company name<input name="name" required maxlength="150" class="mt-1 w-full border rounded px-3 py-2"></label>
-  <button class="bg-slate-900 text-white rounded px-4 py-2">Create company</button>
+  <button class="bg-blue-600 hover:bg-blue-700 text-white rounded px-4 py-2">Create company</button>
 </form>
 <div class="space-y-2">
 <?php foreach ($companies as $c): ?>

@@ -71,7 +71,7 @@ page_header('Machines', $u);
   <label class="text-sm">Model<?php machine_input('model', $tags['model'], $edit['model'] ?? null); ?></label>
   <label class="text-sm">Model code <span class="text-slate-400">(optional)</span><input name="model_code" maxlength="120" value="<?= e($edit['model_code'] ?? '') ?>" class="mt-1 w-full border rounded px-3 py-2"></label>
   <div class="flex gap-2">
-    <button class="bg-slate-900 text-white rounded px-4 py-2"><?= $edit ? 'Update' : 'Add machine' ?></button>
+    <button class="bg-blue-600 hover:bg-blue-700 text-white rounded px-4 py-2"><?= $edit ? 'Update' : 'Add machine' ?></button>
     <?php if ($edit): ?><a href="machines.php" class="px-3 py-2 text-sm text-slate-600">Cancel</a><?php endif; ?>
   </div>
 </form>
@@ -98,13 +98,13 @@ function tag_row(array $t, string $kind): void { ?>
     <form method="post" class="flex gap-2 mb-3">
       <?= csrf_field() ?><input type="hidden" name="action" value="tag_add"><input type="hidden" name="kind" value="<?= $kind ?>">
       <input name="name" required maxlength="120" placeholder="e.g. <?= ['category' => 'Computers', 'brand' => 'Asus', 'model' => 'E35'][$kind] ?>" class="flex-1 min-w-0 border rounded px-3 py-1.5 text-sm">
-      <button class="bg-slate-900 text-white rounded px-3 py-1.5 text-sm">Add</button>
+      <button class="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-1.5 text-sm">Add</button>
     </form>
     <div class="space-y-2">
     <?php foreach (array_slice($tags[$kind], 0, 5) as $t) tag_row($t, $kind); if (!$tags[$kind]) echo '<p class="text-sm text-slate-500">No tags yet.</p>'; ?>
     </div>
     <?php if (count($tags[$kind]) > 5): ?>
-      <div class="mt-3 text-right"><button type="button" data-open="modal-<?= $kind ?>" class="bg-slate-900 text-white rounded px-3 py-1.5 text-sm">Show more (<?= count($tags[$kind]) ?>)</button></div>
+      <div class="mt-3 text-right"><button type="button" data-open="modal-<?= $kind ?>" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-1.5 text-sm">Show more (<?= count($tags[$kind]) ?>)</button></div>
       <div id="modal-<?= $kind ?>" class="hidden fixed inset-0 z-50 bg-black/50 items-center justify-center p-4">
         <div class="bg-white rounded shadow w-full max-w-lg max-h-[85vh] flex flex-col">
           <div class="flex items-center justify-between p-4 border-b">

@@ -37,7 +37,7 @@ page_header('Login');
   <form method="post" class="space-y-3"><?= csrf_field() ?>
     <label class="block text-sm">Email or ID<input type="text" name="email" required autofocus value="<?= e($_POST['email'] ?? '') ?>" class="mt-1 w-full border rounded px-3 py-2"></label>
     <label class="block text-sm">Password<input type="password" name="password" required class="mt-1 w-full border rounded px-3 py-2"></label>
-    <button class="w-full bg-slate-900 text-white rounded py-2">Login</button>
+    <button class="w-full bg-blue-600 hover:bg-blue-700 text-white rounded py-2">Login</button>
   </form>
 </div>
 <?php page_footer();

@@ -87,11 +87,11 @@ page_header('Users', $u);
     <input name="name" required maxlength="108" value="<?= e($nameRest) ?>" class="min-w-0 w-full border rounded px-3 py-2"></div></label>
   <label class="text-sm">Email (optional)<input type="email" name="email" maxlength="190" value="<?= e($edit['email'] ?? '') ?>" class="mt-1 w-full border rounded px-3 py-2"></label>
   <div class="text-sm">Login ID (required)
-    <div class="mt-1 flex gap-2"><input name="login_id" required readonly maxlength="4" value="<?= e($edit['login_id'] ?? '') ?>" class="login-id w-full border rounded px-3 py-2 bg-slate-50 font-mono"><button type="button" class="gen-id bg-slate-700 text-white rounded px-3 text-sm">Generate</button></div></div>
+    <div class="mt-1 flex gap-2"><input name="login_id" required readonly maxlength="4" value="<?= e($edit['login_id'] ?? '') ?>" class="login-id w-full border rounded px-3 py-2 bg-slate-50 font-mono"><button type="button" class="gen-id bg-blue-600 hover:bg-blue-700 text-white rounded px-3 text-sm">Generate</button></div></div>
   <label class="text-sm">Password<?= $edit ? ' (leave blank to keep)' : '' ?><input type="password" name="password" minlength="8" <?= $edit ? '' : 'required' ?> autocomplete="new-password" class="mt-1 w-full border rounded px-3 py-2"></label>
   <label class="text-sm">Role<select name="role" class="mt-1 w-full border rounded px-3 py-2">
     <?php foreach (['support' => 'IT support', 'admin' => 'Admin'] as $v => $l): ?><option value="<?= $v ?>" <?= ($edit['role'] ?? '') === $v ? 'selected' : '' ?>><?= $l ?></option><?php endforeach; ?></select></label>
-  <div class="flex gap-2"><button class="bg-slate-900 text-white rounded py-2 px-4"><?= $edit ? 'Save user' : 'Add user' ?></button><?php if ($edit): ?><a href="users.php" class="py-2 px-3 text-sm text-slate-600">Cancel</a><?php endif; ?></div>
+  <div class="flex gap-2"><button class="bg-blue-600 hover:bg-blue-700 text-white rounded py-2 px-4"><?= $edit ? 'Save user' : 'Add user' ?></button><?php if ($edit): ?><a href="users.php" class="py-2 px-3 text-sm text-slate-600">Cancel</a><?php endif; ?></div>
 </form>
 <script>
 document.querySelectorAll('.gen-id').forEach(btn => btn.addEventListener('click', async () => {

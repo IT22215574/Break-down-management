@@ -53,11 +53,11 @@ page_header('Sectors', $u);
   </div>
   <label class="text-sm">Email address (optional if login ID is set)<input type="email" name="email" maxlength="190" class="mt-1 w-full border rounded px-3 py-2"></label>
   <div class="text-sm">Login ID (required without email)
-    <div class="mt-1 flex gap-2"><input name="login_id" readonly maxlength="8" class="login-id w-full border rounded px-3 py-2 bg-slate-50 font-mono"><button type="button" class="gen-id bg-slate-700 text-white rounded px-3 text-sm">Generate</button></div></div>
+    <div class="mt-1 flex gap-2"><input name="login_id" readonly maxlength="8" class="login-id w-full border rounded px-3 py-2 bg-slate-50 font-mono"><button type="button" class="gen-id bg-blue-600 hover:bg-blue-700 text-white rounded px-3 text-sm">Generate</button></div></div>
   <label class="text-sm">Login password<span class="relative block"><input type="password" name="password" required minlength="8" autocomplete="new-password" class="pr-10 mt-1 w-full border rounded px-3 py-2"><button type="button" class="pw-toggle absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-800" aria-label="Show password" aria-pressed="false"><svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/><path class="pw-slash hidden" d="M3 3l18 18"/></svg></button></span></label>
   <label class="text-sm">Address<input name="address" required maxlength="255" class="mt-1 w-full border rounded px-3 py-2"></label>
   <label class="text-sm md:col-span-2">Description<input name="description" class="mt-1 w-full border rounded px-3 py-2"></label>
-  <button class="self-end bg-slate-900 text-white rounded py-2">Create sector</button>
+  <button class="self-end bg-blue-600 hover:bg-blue-700 text-white rounded py-2">Create sector</button>
 </form>
 <script>
 document.querySelectorAll('.gen-id').forEach(btn => btn.addEventListener('click', async () => {

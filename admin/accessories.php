@@ -97,7 +97,7 @@ page_header('Accessories', $u);
   <label class="text-sm">Brand <span class="text-slate-400">(optional)</span><input name="brand" list="accessory-brand-tags" maxlength="120" autocomplete="off" value="<?= e($edit['brand'] ?? '') ?>" placeholder="Type or select a brand" class="mt-1 w-full border rounded px-3 py-2"><datalist id="accessory-brand-tags"><?php foreach ($brandTags as $brandTag): ?><option value="<?= e($brandTag['name']) ?>"></option><?php endforeach; ?></datalist><span class="block min-h-5 text-xs text-slate-500">New brands are saved as suggestions.</span></label>
   <label class="text-sm">Price<input type="number" name="price" required min="0" max="99999999.99" step="0.01" value="<?= e($edit['price'] ?? '') ?>" class="mt-1 w-full border rounded px-3 py-2"></label>
   <div class="md:col-span-3 flex gap-2 justify-end">
-    <button class="bg-slate-900 text-white rounded px-4 py-2"><?= $edit ? 'Update accessory' : 'Add accessory' ?></button>
+    <button class="bg-blue-600 hover:bg-blue-700 text-white rounded px-4 py-2"><?= $edit ? 'Update accessory' : 'Add accessory' ?></button>
     <?php if ($edit): ?><a href="accessories.php" class="px-3 py-2 text-sm text-slate-600">Cancel</a><?php endif; ?>
   </div>
 </form>
@@ -129,13 +129,13 @@ $tagSections = [
   <form method="post" class="flex gap-2 mb-3">
     <?= csrf_field() ?><input type="hidden" name="action" value="<?= $kind ?>_tag_add">
     <input name="<?= $kind ?>_tag" required maxlength="120" placeholder="New accessory <?= $label ?>" class="flex-1 min-w-0 border rounded px-3 py-1.5 text-sm">
-    <button class="bg-slate-900 text-white rounded px-3 py-1.5 text-sm">Add</button>
+    <button class="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-1.5 text-sm">Add</button>
   </form>
   <div class="space-y-2">
     <?php foreach (array_slice($list, 0, 6) as $tag) tag_row($tag, $kind, $label); if (!$list): ?><p class="text-sm text-slate-500">No accessory <?= $label ?> tags yet.</p><?php endif; ?>
   </div>
   <?php if (count($list) > 6): ?>
-    <div class="mt-3 text-right"><button type="button" data-open="modal-<?= $kind ?>-tags" class="bg-slate-900 text-white rounded px-3 py-1.5 text-sm">Show more (<?= count($list) ?>)</button></div>
+    <div class="mt-3 text-right"><button type="button" data-open="modal-<?= $kind ?>-tags" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-1.5 text-sm">Show more (<?= count($list) ?>)</button></div>
     <div id="modal-<?= $kind ?>-tags" class="hidden fixed inset-0 z-50 bg-black/50 items-center justify-center p-4">
       <div class="bg-white rounded shadow w-full max-w-lg max-h-[85vh] flex flex-col">
         <div class="flex items-center justify-between p-4 border-b">

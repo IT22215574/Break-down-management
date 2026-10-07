@@ -429,7 +429,7 @@ function page_header(string $title, ?array $u = null): void {
 <?php if ($u): ?>
 <header class="bg-slate-900 text-white print:hidden"><div class="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center gap-4">
   <a href="<?= url(home_for($u['role'])) ?>" class="font-bold text-lg">⚙ Breakdown Management</a>
-  <button id="nav-toggle" type="button" class="ml-auto rounded p-2 hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-white md:hidden" aria-controls="primary-navigation" aria-expanded="false">
+  <button id="nav-toggle" type="button" class="ml-auto rounded p-2 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-white md:hidden" aria-controls="primary-navigation" aria-expanded="false">
     <span class="sr-only">Toggle navigation</span>
     <svg aria-hidden="true" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
@@ -440,7 +440,7 @@ function page_header(string $title, ?array $u = null): void {
       <?php foreach ($nav as $href => $label): ?><a class="hover:underline" href="<?= url($href) ?>"><?= e($label) ?></a><?php endforeach; ?>
     </nav>
     <span class="text-sm text-slate-300"><?= e($u['name']) ?> (<?= e($u['role']) ?>)</span>
-    <a href="<?= url('logout.php') ?>" class="w-fit text-sm bg-slate-700 hover:bg-slate-600 rounded px-3 py-1">Logout</a>
+    <a href="<?= url('logout.php') ?>" class="w-fit text-sm bg-blue-600 hover:bg-blue-700 rounded px-3 py-1">Logout</a>
   </div>
 </div></header>
 <script>

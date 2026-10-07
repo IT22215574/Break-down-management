@@ -106,6 +106,9 @@ if ($accessoryRowsJson !== '') {
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_quotation') {
     $quoteSectorId = $breakdownId ? (int)$row['sector_id'] : $sectorId;
     try {
+        if ($quote['contact_phone'] !== '' && !preg_match('/^[0-9]{10}$/', $quote['contact_phone'])) {
+            throw new InvalidArgumentException('Phone number must be exactly 10 digits.');
+        }
         $quoteDate = (string)($_POST['quote_date'] ?? '');
         $dateObj = DateTime::createFromFormat('Y-m-d', $quoteDate);
         if (!$dateObj || $dateObj->format('Y-m-d') !== $quoteDate) throw new InvalidArgumentException('Enter a valid date.');
@@ -235,7 +238,7 @@ page_header('Make Quotations');
     <label class="text-sm print:hidden">Sector name<input value="<?= e($quote['sector_name']) ?>" class="mt-1 w-full border rounded px-3 py-2 print:border-0 print:px-0"></label>
     <label class="text-sm md:col-span-2 print:hidden">Sector address<textarea rows="2" class="mt-1 w-full border rounded px-3 py-2 print:border-0 print:px-0"><?= e($quote['sector_address']) ?></textarea></label>
     <label class="text-sm print:flex print:items-center print:gap-1">Contacted by<span class="print:hidden"> (client side)</span><span class="hidden print:inline">:</span><input id="quote-contact-name" value="<?= e($quote['contact_name']) ?>" class="mt-1 w-full border rounded px-3 py-2 print:border-0 print:px-0 print:mt-0 print:py-0 print:w-auto"></label>
-    <label class="text-sm print:flex print:items-center print:gap-1">Phone number<span class="hidden print:inline">:</span><input id="quote-contact-phone" type="tel" value="<?= e($quote['contact_phone']) ?>" class="mt-1 w-full border rounded px-3 py-2 print:border-0 print:px-0 print:mt-0 print:py-0 print:w-auto"></label>
+    <label class="text-sm print:flex print:items-center print:gap-1">Phone number<span class="hidden print:inline">:</span><input id="quote-contact-phone" type="tel" minlength="10" maxlength="10" pattern="[0-9]{10}" inputmode="numeric" title="Enter exactly 10 digits" value="<?= e($quote['contact_phone']) ?>" class="mt-1 w-full border rounded px-3 py-2 print:border-0 print:px-0 print:mt-0 print:py-0 print:w-auto"></label>
     <section class="md:col-span-2">
       <div class="hidden print:block mb-2"><h2 class="font-semibold">Machines</h2></div>
       <div class="flex flex-wrap items-center gap-2 mb-2 print:hidden">
@@ -266,6 +269,17 @@ page_header('Make Quotations');
     <label class="text-sm md:col-span-2 font-bold">Breakdown<textarea id="quote-breakdown" rows="4" class="font-normal mt-1 w-full border rounded px-3 py-2 print:border-0 print:px-0"><?= e($quote['breakdown']) ?></textarea></label>
     <label class="text-sm md:col-span-2 font-bold">Remark<textarea id="quote-remark" rows="3" class="font-normal mt-1 w-full border rounded px-3 py-2 print:border-0 print:px-0"><?= e($quote['remark']) ?></textarea></label>
   </div>
+  <section class="quote-signatures mt-10 grid grid-cols-2 gap-8 text-sm">
+    <div>
+      <div class="signature-line"></div>
+      <div>Customer Signature</div>
+      <p class="mt-4"><strong>Please Note:</strong> Clear the goods within 3 months.</p>
+    </div>
+    <div>
+      <div class="signature-line"></div>
+      <div>Authorized Signature</div>
+    </div>
+  </section>
   <div class="mt-6 print:hidden flex flex-wrap gap-2"><button type="button" id="save-quote" class="bg-green-600 hover:bg-green-700 text-white rounded px-4 py-2">Save quotation</button><button type="button" id="print-quote" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-4 py-2">Print / Save as PDF</button></div>
 </div>
 <template id="machine-row-template">
@@ -290,7 +304,7 @@ page_header('Make Quotations');
     <label class="text-sm print:hidden">Brand<input data-field="brand" maxlength="120" class="machine-field mt-1 w-full border rounded px-3 py-2 print:border-0 print:px-0"></label>
     <label class="text-sm print:hidden">Model<input data-field="model" maxlength="120" class="machine-field mt-1 w-full border rounded px-3 py-2 print:border-0 print:px-0"></label>
     <label class="text-sm print:hidden">Model code<input data-field="model_code" maxlength="120" class="machine-field mt-1 w-full border rounded px-3 py-2 print:border-0 print:px-0"></label>
-    <?php if ($u['role'] === 'admin'): ?><button type="button" class="save-machine-to-inventory md:col-span-2 w-fit bg-slate-700 text-white rounded px-3 py-1.5 text-sm print:hidden">Add this machine to inventory</button><?php endif; ?>
+    <?php if ($u['role'] === 'admin'): ?><button type="button" class="save-machine-to-inventory md:col-span-2 w-fit bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-1.5 text-sm print:hidden">Add this machine to inventory</button><?php endif; ?>
   </div>
 </template>
 <template id="accessory-row-template">
@@ -318,7 +332,7 @@ page_header('Make Quotations');
     <label class="text-sm print:hidden">Discounted price <span class="text-slate-400">(optional)</span><input data-field="discount_price" type="number" max="99999999.99" step="0.01" class="accessory-extra-field mt-1 w-full border rounded px-3 py-2"></label>
     <label class="text-sm print:hidden">Discount % <span class="text-slate-400">(auto-calculated)</span><input data-field="discount_percent" type="number" min="0" max="100" step="0.01" class="accessory-extra-field mt-1 w-full border rounded px-3 py-2"></label>
     <p class="accessory-error md:col-span-2 text-sm text-red-600 hidden print:hidden"></p>
-    <?php if ($u['role'] === 'admin'): ?><button type="button" class="save-accessory-to-inventory md:col-span-2 w-fit bg-slate-700 text-white rounded px-3 py-1.5 text-sm print:hidden">Add this accessory to inventory</button><?php endif; ?>
+    <?php if ($u['role'] === 'admin'): ?><button type="button" class="save-accessory-to-inventory md:col-span-2 w-fit bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-1.5 text-sm print:hidden">Add this accessory to inventory</button><?php endif; ?>
   </div>
 </template>
 <datalist id="accessory-quotation-brands"><?php foreach ($accessoryBrandTags as $brandTag): ?><option value="<?= e($brandTag) ?>"></option><?php endforeach; ?></datalist>
@@ -577,6 +591,11 @@ page_header('Make Quotations');
   }
 
   document.getElementById('print-quote').addEventListener('click', () => {
+    const phoneInput = document.getElementById('quote-contact-phone');
+    if (!phoneInput.checkValidity()) {
+      phoneInput.reportValidity();
+      return;
+    }
     refreshAccessoryRows();
     if (accessoriesInvalid) {
       alert('Please fix the accessory discounted price: it cannot be higher than the original price.');
@@ -584,7 +603,15 @@ page_header('Make Quotations');
     }
     window.print();
   });
+  document.getElementById('quote-contact-phone').addEventListener('input', e => {
+    e.target.value = e.target.value.replace(/\D/g, '').slice(0, 10);
+  });
   document.getElementById('save-quote').addEventListener('click', () => {
+    const phoneInput = document.getElementById('quote-contact-phone');
+    if (!phoneInput.checkValidity()) {
+      phoneInput.reportValidity();
+      return;
+    }
     refreshAccessoryRows();
     if (accessoriesInvalid) {
       alert('Please fix the accessory discounted price: it cannot be higher than the original price.');
@@ -624,6 +651,7 @@ page_header('Make Quotations');
 })();
 </script>
 <style>
+.signature-line { width: 50%; height: 4rem; border-bottom: 1px dotted #334155; margin-bottom: 0.5rem; }
 @media print {
   nav, footer { display: none !important; }
   body { background: white !important; }
@@ -632,6 +660,7 @@ page_header('Make Quotations');
   .machine-print-summary { white-space: normal; }
   .accessory-row { display: block !important; border: 0 !important; padding: 0 !important; margin-bottom: 0.25rem; break-inside: avoid; }
   .accessory-print-summary { white-space: normal; }
+  .quote-signatures { break-before: page; page-break-before: always; break-inside: avoid; page-break-inside: avoid; }
 }
 </style>
 <?php page_footer(); ?>

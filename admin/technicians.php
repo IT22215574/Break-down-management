@@ -70,7 +70,7 @@ page_header('Technicians', $u);
     <select name="name_title" class="border rounded px-2 py-2"><?php foreach (PERSON_NAME_TITLES as $value => $title): ?><option value="<?= e($value) ?>"><?= e($title) ?></option><?php endforeach; ?></select>
     <input name="name" required maxlength="108" class="min-w-0 w-full border rounded px-3 py-2"></div></label>
   <label class="text-sm">Phone number<input type="tel" name="phone" required minlength="10" maxlength="10" pattern="[0-9]{10}" inputmode="numeric" class="technician-phone mt-1 w-full border rounded px-3 py-2"></label>
-  <button class="bg-slate-900 text-white rounded py-2">Add technician</button>
+  <button class="bg-blue-600 hover:bg-blue-700 text-white rounded py-2">Add technician</button>
 </form>
 <div class="bg-white rounded shadow overflow-x-auto"><table class="w-full text-sm">
 <thead class="bg-slate-50 text-left text-xs uppercase text-slate-500"><tr><th class="p-3">Name</th><th class="p-3">Phone number</th><th class="p-3">Status</th><th class="p-3">Actions</th></tr></thead><tbody>

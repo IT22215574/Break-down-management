@@ -63,6 +63,24 @@ page_header('Quotation', $u);
 
   <div class="mt-4 text-sm"><div class="font-bold">Breakdown</div><div class="whitespace-pre-line"><?= e($q['breakdown']) ?></div></div>
   <div class="mt-4 text-sm"><div class="font-bold">Remark</div><div class="whitespace-pre-line"><?= e($q['remark']) ?></div></div>
+  <section class="quote-signatures mt-10 grid grid-cols-2 gap-8 text-sm">
+    <div>
+      <div class="signature-line"></div>
+      <div>Customer Signature</div>
+      <p class="mt-4"><strong>Please Note:</strong> Clear the goods within 3 months.</p>
+    </div>
+    <div>
+      <div class="signature-line"></div>
+      <div>Authorized Signature</div>
+    </div>
+  </section>
 </div>
-<style>@media print { nav, footer { display: none !important; } body { background: white !important; } }</style>
+<style>
+.signature-line { width: 50%; height: 4rem; border-bottom: 1px dotted #334155; margin-bottom: 0.5rem; }
+@media print {
+  nav, footer { display: none !important; }
+  body { background: white !important; }
+  .quote-signatures { break-before: page; page-break-before: always; break-inside: avoid; page-break-inside: avoid; }
+}
+</style>
 <?php page_footer(); ?>
