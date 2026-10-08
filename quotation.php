@@ -4,18 +4,33 @@ $u = require_role('admin', 'support');
 
 $breakdownId = (int)($_POST['breakdown_id'] ?? $_GET['breakdown_id'] ?? 0);
 $sectorId = (int)($_POST['sector_id'] ?? $_GET['sector_id'] ?? 0);
+$quoteCompanyId = (int)($_POST['company_id'] ?? $_GET['company_id'] ?? 0);
+$editId = (int)($_POST['quotation_id'] ?? $_GET['quotation_id'] ?? 0);
+$editQuote = null;
+if ($editId) {
+    $est = $pdo->prepare('SELECT * FROM quotations WHERE id=?');
+    $est->execute([$editId]);
+    $editQuote = $est->fetch();
+    if (!$editQuote || !can_access_sector($u, (int)$editQuote['sector_id'])) {
+        http_response_code(404);
+        exit('Not found');
+    }
+    $breakdownId = (int)($editQuote['breakdown_id'] ?? 0);
+    $sectorId = (int)$editQuote['sector_id'];
+    $quoteCompanyId = (int)($editQuote['company_id'] ?? 0);
+}
 $quote = [
-    'quote_date' => date('Y-m-d'),
+    'quote_date' => $editQuote['quote_date'] ?? date('Y-m-d'),
     'sector_name' => '',
     'sector_address' => '',
-    'contact_name' => trim((string)($_POST['contact_name'] ?? $_GET['contact_name'] ?? '')),
-    'contact_phone' => trim((string)($_POST['contact_phone'] ?? $_GET['contact_phone'] ?? '')),
+    'contact_name' => trim((string)($_POST['contact_name'] ?? $_GET['contact_name'] ?? ($editQuote['contact_name'] ?? ''))),
+    'contact_phone' => trim((string)($_POST['contact_phone'] ?? $_GET['contact_phone'] ?? ($editQuote['contact_phone'] ?? ''))),
     'machine_model' => trim((string)($_POST['machine_model'] ?? $_GET['machine_model'] ?? '')),
-    'breakdown' => trim((string)($_POST['breakdown'] ?? $_GET['breakdown'] ?? '')),
-    'remark' => '',
+    'breakdown' => trim((string)($_POST['breakdown'] ?? $_GET['breakdown'] ?? ($editQuote['breakdown'] ?? ''))),
+    'remark' => $editQuote['remark'] ?? '',
 ];
 
-if ($breakdownId) {
+if ($breakdownId && !$editQuote) {
     $st = $pdo->prepare('SELECT b.*, s.name AS sector_name, s.address AS sector_address
         FROM breakdowns b JOIN sectors s ON s.id=b.sector_id WHERE b.id=?');
     $st->execute([$breakdownId]);
@@ -24,6 +39,7 @@ if ($breakdownId) {
         http_response_code(404);
         exit('Not found');
     }
+    if (!$quoteCompanyId && !empty($row['company_id'])) $quoteCompanyId = (int)$row['company_id'];
     $quote['sector_name'] = $row['sector_name'];
     $quote['sector_address'] = $row['sector_address'] ?? '';
     $quote['contact_name'] = trim((string)($_POST['contact_name'] ?? $_GET['contact_name'] ?? $row['client_name']));
@@ -44,6 +60,7 @@ if ($breakdownId) {
     }
 }
 
+$companyOptions = $pdo->query('SELECT id,name,job_tag FROM companies ORDER BY name')->fetchAll();
 $machines = $pdo->query('SELECT id,category,brand,model,model_code FROM machines ORDER BY category,brand,model,model_code')->fetchAll();
 $accessories = $pdo->query('SELECT id,name,brand,price FROM accessories ORDER BY name')->fetchAll();
 $accessoryBrandTags = $pdo->query('SELECT name FROM accessory_brand_tags ORDER BY name')->fetchAll(PDO::FETCH_COLUMN);
@@ -64,6 +81,11 @@ if ($rowsJson !== '') {
         }
     } else {
         flash('Could not restore the quotation machine list.', 'error');
+    }
+}
+if (!$machineRows && $editQuote) {
+    foreach (json_decode($editQuote['machines_json'], true) ?: [] as $m) {
+        $machineRows[] = ['id' => 0, 'category' => (string)($m['category'] ?? ''), 'brand' => (string)($m['brand'] ?? ''), 'model' => (string)($m['model'] ?? ''), 'model_code' => (string)($m['model_code'] ?? '')];
     }
 }
 if (!$machineRows) {
@@ -103,8 +125,15 @@ if ($accessoryRowsJson !== '') {
     }
 }
 
+if (!$accessoryRows && $editQuote) {
+    foreach (json_decode($editQuote['accessories_json'], true) ?: [] as $a) {
+        $accessoryRows[] = ['id' => 0, 'name' => (string)($a['name'] ?? ''), 'brand' => (string)($a['brand'] ?? ''), 'price' => (string)($a['price'] ?? ''),
+            'quantity' => (string)($a['quantity'] ?? ''), 'discount_price' => ($a['discount_price'] ?? null) === null ? '' : (string)$a['discount_price']];
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_quotation') {
-    $quoteSectorId = $breakdownId ? (int)$row['sector_id'] : $sectorId;
+    $quoteSectorId = $editQuote ? (int)$editQuote['sector_id'] : ($breakdownId ? (int)$row['sector_id'] : $sectorId);
     try {
         if ($quote['contact_phone'] !== '' && !preg_match('/^[0-9]{10}$/', $quote['contact_phone'])) {
             throw new InvalidArgumentException('Phone number must be exactly 10 digits.');
@@ -135,12 +164,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
             'category' => $m['category'], 'brand' => $m['brand'], 'model' => $m['model'], 'model_code' => $m['model_code'],
         ], $machineRows), fn($m) => $m['category'] . $m['brand'] . $m['model'] . $m['model_code'] !== ''));
         if (!$savedMachines && !$savedAccessories) throw new InvalidArgumentException('Add at least one machine or accessory before saving.');
-        $pdo->prepare('INSERT INTO quotations (breakdown_id,sector_id,created_by,quote_date,contact_name,contact_phone,breakdown,remark,machines_json,accessories_json,total) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
-            ->execute([$breakdownId ?: null, $quoteSectorId, (int)$u['id'], $quoteDate, mb_substr($quote['contact_name'], 0, 190), mb_substr($quote['contact_phone'], 0, 32),
-                $quote['breakdown'], trim((string)($_POST['remark'] ?? '')), json_encode($savedMachines, JSON_THROW_ON_ERROR), json_encode($savedAccessories, JSON_THROW_ON_ERROR), round($total, 2)]);
-        flash('Quotation saved.');
-        redirect(($u['role'] === 'admin' ? 'admin/records.php' : 'support/records.php') . '?sector=' . $quoteSectorId);
+        $remark = trim((string)($_POST['remark'] ?? ''));
+        $snapshot = ['quote_date' => $quoteDate, 'contact_name' => mb_substr($quote['contact_name'], 0, 190), 'contact_phone' => mb_substr($quote['contact_phone'], 0, 32),
+            'breakdown' => $quote['breakdown'], 'remark' => $remark, 'machines_json' => json_encode($savedMachines, JSON_THROW_ON_ERROR),
+            'accessories_json' => json_encode($savedAccessories, JSON_THROW_ON_ERROR), 'total' => round($total, 2)];
+        $jobNo = null;
+        // Quotations opened from the unsaved breakdown form have no link yet; match the breakdown by sector, company, contact phone and system.
+        if (!$breakdownId && !$editQuote && $quoteCompanyId && $quote['contact_phone'] !== '') {
+            $mst = $pdo->prepare('SELECT id FROM breakdowns WHERE sector_id=? AND company_id=? AND contact_phone=? AND technician_required=1 AND system_name=?
+                AND NOT EXISTS (SELECT 1 FROM quotations q WHERE q.breakdown_id=breakdowns.id) ORDER BY id DESC LIMIT 1');
+            $mst->execute([$quoteSectorId, $quoteCompanyId, $quote['contact_phone'], $quote['machine_model']]);
+            $breakdownId = (int)$mst->fetchColumn();
+        }
+        $syncProblem = function () use ($pdo, $breakdownId, $quote) {
+            if ($breakdownId && $quote['breakdown'] !== '') $pdo->prepare('UPDATE breakdowns SET description=? WHERE id=?')->execute([$quote['breakdown'], $breakdownId]);
+        };
+        if ($editQuote) {
+            $pdo->beginTransaction();
+            quotation_ensure_baseline($editQuote);
+            quotation_add_revision($editId, $snapshot, (int)$u['id']);
+            $pdo->prepare('UPDATE quotations SET quote_date=?,contact_name=?,contact_phone=?,breakdown=?,remark=?,machines_json=?,accessories_json=?,total=? WHERE id=?')
+                ->execute([$snapshot['quote_date'], $snapshot['contact_name'], $snapshot['contact_phone'], $snapshot['breakdown'], $snapshot['remark'], $snapshot['machines_json'], $snapshot['accessories_json'], $snapshot['total'], $editId]);
+            $syncProblem();
+            $pdo->commit();
+            flash('Quotation updated. The previous version is kept below.');
+            redirect('quotation_view.php?id=' . $editId);
+        }
+        if (!$quoteCompanyId && $pdo->query("SELECT 1 FROM companies WHERE job_tag IS NOT NULL AND job_tag <> '' LIMIT 1")->fetchColumn()) {
+            throw new InvalidArgumentException('Select a company so the Job ID can be generated.');
+        }
+        $pdo->beginTransaction();
+        if ($quoteCompanyId) {
+            $cst = $pdo->prepare('SELECT job_tag, last_job_no FROM companies WHERE id=? FOR UPDATE');
+            $cst->execute([$quoteCompanyId]);
+            $co = $cst->fetch();
+            if (!$co) throw new InvalidArgumentException('Select a valid company.');
+            if ($co['job_tag'] !== null && $co['job_tag'] !== '') {
+                $next = (int)$co['last_job_no'] + 1;
+                $jobNo = $co['job_tag'] . str_pad((string)$next, 2, '0', STR_PAD_LEFT);
+                $pdo->prepare('UPDATE companies SET last_job_no=? WHERE id=?')->execute([$next, $quoteCompanyId]);
+            }
+        }
+        $pdo->prepare('INSERT INTO quotations (breakdown_id,sector_id,created_by,quote_date,contact_name,contact_phone,breakdown,remark,machines_json,accessories_json,total,company_id,job_no) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+            ->execute([$breakdownId ?: null, $quoteSectorId, (int)$u['id'], $snapshot['quote_date'], $snapshot['contact_name'], $snapshot['contact_phone'], $snapshot['breakdown'], $snapshot['remark'],
+                $snapshot['machines_json'], $snapshot['accessories_json'], $snapshot['total'], $quoteCompanyId ?: null, $jobNo]);
+        quotation_add_revision((int)$pdo->lastInsertId(), $snapshot, (int)$u['id']);
+        $syncProblem();
+        $pdo->commit();
+        flash($jobNo ? "Quotation saved. Job ID: $jobNo" : 'Quotation saved.');
+        redirect(($u['role'] === 'admin' ? 'admin/records.php' : 'support/records.php') . '?sector=' . $quoteSectorId . '&tab=quotations');
     } catch (InvalidArgumentException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
         flash($e->getMessage(), 'error');
         $quote['quote_date'] = (string)($_POST['quote_date'] ?? $quote['quote_date']);
         $quote['remark'] = trim((string)($_POST['remark'] ?? ''));
@@ -209,6 +283,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['
         $returnParams = [
             'breakdown_id' => $breakdownId,
             'sector_id' => $sectorId,
+            'company_id' => $quoteCompanyId,
+            'quotation_id' => $editId,
             'contact_name' => $quote['contact_name'],
             'contact_phone' => $quote['contact_phone'],
             'machine_model' => $quote['machine_model'],
@@ -230,11 +306,16 @@ page_header('Make Quotations');
 ?>
 <div class="max-w-3xl mx-auto bg-white rounded shadow p-6">
   <div class="flex flex-wrap items-start justify-between gap-3 mb-6">
-    <div><h1 class="text-2xl font-bold">Quotation</h1></div>
-    <?php if ($breakdownId): ?><a class="text-sm text-blue-600 print:hidden" href="<?= url('breakdown.php?id=' . $breakdownId) ?>">&larr; Back to breakdown</a><?php endif; ?>
+    <div><h1 class="text-2xl font-bold">Quotation<?php if ($editQuote): ?> <span class="text-slate-500 text-lg">— editing Job ID <?= e($editQuote['job_no'] ?: '#' . $editId) ?></span><?php endif; ?></h1></div>
+    <?php if ($editQuote): ?><a class="text-sm text-blue-600 print:hidden" href="<?= url('quotation_view.php?id=' . $editId) ?>">&larr; Back to quotation</a><?php elseif ($breakdownId): ?><a class="text-sm text-blue-600 print:hidden" href="<?= url('breakdown.php?id=' . $breakdownId) ?>">&larr; Back to breakdown</a><?php endif; ?>
   </div>
   <div class="grid md:grid-cols-2 gap-4 print:gap-2">
     <label class="text-sm print:flex print:items-center print:gap-1">Date<span class="hidden print:inline">:</span><input id="quote-date" type="date" value="<?= e($quote['quote_date']) ?>" class="mt-1 w-full border rounded px-3 py-2 print:border-0 print:px-0 print:mt-0 print:py-0 print:w-auto"></label>
+    <label class="text-sm print:hidden">Company (for Job ID)
+      <select id="quote-company" <?= $editQuote ? 'disabled' : 'required' ?> class="mt-1 w-full border rounded px-3 py-2">
+        <option value="">— Select company —</option>
+        <?php foreach ($companyOptions as $co): ?><option value="<?= (int)$co['id'] ?>" <?= $quoteCompanyId === (int)$co['id'] ? 'selected' : '' ?>><?= e($co['name']) ?><?= $co['job_tag'] ? ' (' . e($co['job_tag']) . ')' : '' ?></option><?php endforeach; ?>
+      </select></label>
     <label class="text-sm print:hidden">Sector name<input value="<?= e($quote['sector_name']) ?>" class="mt-1 w-full border rounded px-3 py-2 print:border-0 print:px-0"></label>
     <label class="text-sm md:col-span-2 print:hidden">Sector address<textarea rows="2" class="mt-1 w-full border rounded px-3 py-2 print:border-0 print:px-0"><?= e($quote['sector_address']) ?></textarea></label>
     <label class="text-sm print:flex print:items-center print:gap-1">Contacted by<span class="print:hidden"> (client side)</span><span class="hidden print:inline">:</span><input id="quote-contact-name" value="<?= e($quote['contact_name']) ?>" class="mt-1 w-full border rounded px-3 py-2 print:border-0 print:px-0 print:mt-0 print:py-0 print:w-auto"></label>
@@ -280,7 +361,7 @@ page_header('Make Quotations');
       <div>Authorized Signature</div>
     </div>
   </section>
-  <div class="mt-6 print:hidden flex flex-wrap gap-2"><button type="button" id="save-quote" class="bg-green-600 hover:bg-green-700 text-white rounded px-4 py-2">Save quotation</button><button type="button" id="print-quote" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-4 py-2">Print / Save as PDF</button></div>
+  <div class="mt-6 print:hidden flex flex-wrap gap-2"><button type="button" id="save-quote" class="bg-green-600 hover:bg-green-700 text-white rounded px-4 py-2"><?= $editQuote ? 'Save changes' : 'Save quotation' ?></button><button type="button" id="print-quote" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-4 py-2">Print / Save as PDF</button></div>
 </div>
 <template id="machine-row-template">
   <div class="machine-row grid gap-3 md:grid-cols-2 border rounded p-3">
@@ -449,7 +530,9 @@ page_header('Make Quotations');
         action: 'create_machine',
         row_index: String(rowIndex),
         breakdown_id: String(breakdownId),
+      quotation_id: String(<?= $editId ?>),
         sector_id: String(sectorId),
+      company_id: document.getElementById('quote-company').value,
         contact_name: document.getElementById('quote-contact-name').value,
         contact_phone: document.getElementById('quote-contact-phone').value,
         machine_model: '',
@@ -568,7 +651,9 @@ page_header('Make Quotations');
         action: 'create_accessory',
         row_index: String(rowIndex),
         breakdown_id: String(breakdownId),
+      quotation_id: String(<?= $editId ?>),
         sector_id: String(sectorId),
+      company_id: document.getElementById('quote-company').value,
         contact_name: document.getElementById('quote-contact-name').value,
         contact_phone: document.getElementById('quote-contact-phone').value,
         machine_model: '',
@@ -624,11 +709,13 @@ page_header('Make Quotations');
       csrf,
       action: 'save_quotation',
       breakdown_id: String(breakdownId),
+      quotation_id: String(<?= $editId ?>),
       sector_id: String(sectorId),
+      company_id: document.getElementById('quote-company').value,
       quote_date: document.getElementById('quote-date').value,
       contact_name: document.getElementById('quote-contact-name').value,
       contact_phone: document.getElementById('quote-contact-phone').value,
-      machine_model: '',
+      machine_model: <?= json_encode($quote['machine_model']) ?>,
       breakdown: document.getElementById('quote-breakdown').value,
       remark: document.getElementById('quote-remark').value,
       machine_rows: JSON.stringify(currentRows()),

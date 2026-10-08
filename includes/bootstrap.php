@@ -110,6 +110,28 @@ $pdo->exec('CREATE TABLE IF NOT EXISTS quotations (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX (sector_id), INDEX (breakdown_id)
 ) ENGINE=InnoDB');
+if (!$pdo->query("SHOW COLUMNS FROM companies LIKE 'job_tag'")->fetch()) {
+    $pdo->exec('ALTER TABLE companies ADD job_tag VARCHAR(30) NULL, ADD last_job_no INT NOT NULL DEFAULT 0');
+}
+if (!$pdo->query("SHOW COLUMNS FROM quotations LIKE 'job_no'")->fetch()) {
+    $pdo->exec('ALTER TABLE quotations ADD company_id INT NULL, ADD job_no VARCHAR(60) NULL');
+}
+$pdo->exec('CREATE TABLE IF NOT EXISTS quotation_revisions (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    quotation_id INT NOT NULL,
+    revision_no INT NOT NULL,
+    edited_by INT NULL,
+    created_at DATETIME NOT NULL,
+    quote_date DATE NOT NULL,
+    contact_name VARCHAR(190) NOT NULL DEFAULT \'\',
+    contact_phone VARCHAR(32) NOT NULL DEFAULT \'\',
+    breakdown TEXT NULL,
+    remark TEXT NULL,
+    machines_json MEDIUMTEXT NOT NULL,
+    accessories_json MEDIUMTEXT NOT NULL,
+    total DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+    UNIQUE KEY quotation_revision (quotation_id, revision_no)
+) ENGINE=InnoDB');
 $pdo->exec('CREATE TABLE IF NOT EXISTS edit_locks (
     resource_type VARCHAR(32) NOT NULL,
     resource_id INT NOT NULL,
@@ -393,6 +415,7 @@ function fetch_breakdowns(array $u, array $f): array {
     if (!$ids) return [];
     $where = ['b.sector_id IN (' . implode(',', $ids) . ')']; $p = [];
     if (!empty($f['sector'])) { $where[] = 'b.sector_id=?'; $p[] = (int)$f['sector']; }
+    if (!empty($f['company'])) { $where[] = 'b.company_id=?'; $p[] = (int)$f['company']; }
     if (!empty($f['status']) && isset(STATUSES[$f['status']])) { $where[] = 'b.status=?'; $p[] = $f['status']; }
     if (!empty($f['from'])) { $where[] = 'b.occurred_at >= ?'; $p[] = $f['from'] . ' 00:00:00'; }
     if (!empty($f['to'])) { $where[] = 'b.occurred_at <= ?'; $p[] = $f['to'] . ' 23:59:59'; }
@@ -406,9 +429,60 @@ function fetch_breakdowns(array $u, array $f): array {
     return $st->fetchAll();
 }
 
+// Appends a revision (a full snapshot) to a quotation and returns its number.
+function quotation_add_revision(int $qid, array $d, ?int $userId, ?string $at = null): int {
+    global $pdo;
+    $st = $pdo->prepare('SELECT COALESCE(MAX(revision_no),0)+1 FROM quotation_revisions WHERE quotation_id=?');
+    $st->execute([$qid]);
+    $no = (int)$st->fetchColumn();
+    $pdo->prepare('INSERT INTO quotation_revisions (quotation_id,revision_no,edited_by,created_at,quote_date,contact_name,contact_phone,breakdown,remark,machines_json,accessories_json,total) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
+        ->execute([$qid, $no, $userId, $at ?? date('Y-m-d H:i:s'), $d['quote_date'], $d['contact_name'], $d['contact_phone'], $d['breakdown'], $d['remark'], $d['machines_json'], $d['accessories_json'], $d['total']]);
+    return $no;
+}
+
+// Quotations saved before revisions existed get their current content recorded as revision 1.
+function quotation_ensure_baseline(array $q): void {
+    global $pdo;
+    $st = $pdo->prepare('SELECT 1 FROM quotation_revisions WHERE quotation_id=? LIMIT 1');
+    $st->execute([(int)$q['id']]);
+    if (!$st->fetchColumn()) quotation_add_revision((int)$q['id'], $q, (int)$q['created_by'], $q['created_at']);
+}
+
+// All versions of a quotation, newest first, with the editor's name.
+function quotation_revisions(array $q): array {
+    global $pdo;
+    $st = $pdo->prepare('SELECT r.*, u.name AS editor_name FROM quotation_revisions r LEFT JOIN users u ON u.id=r.edited_by WHERE r.quotation_id=? ORDER BY r.revision_no DESC');
+    $st->execute([(int)$q['id']]);
+    $rows = $st->fetchAll();
+    if ($rows) return $rows;
+    $st = $pdo->prepare('SELECT name FROM users WHERE id=?');
+    $st->execute([(int)$q['created_by']]);
+    return [$q + ['revision_no' => 1, 'edited_by' => $q['created_by'], 'editor_name' => $st->fetchColumn() ?: null]];
+}
+
+function fetch_quotations(int $sid, array $f): array {
+    global $pdo;
+    $where = ['q.sector_id=?']; $p = [$sid];
+    if (!empty($f['company'])) { $where[] = 'q.company_id=?'; $p[] = (int)$f['company']; }
+    if (!empty($f['breakdown'])) { $where[] = 'q.breakdown_id=?'; $p[] = (int)$f['breakdown']; }
+    if (!empty($f['from'])) { $where[] = 'q.quote_date >= ?'; $p[] = $f['from']; }
+    if (!empty($f['to'])) { $where[] = 'q.quote_date <= ?'; $p[] = $f['to']; }
+    if (!empty($f['q'])) {
+        $where[] = '(q.job_no LIKE ? OR q.contact_name LIKE ? OR q.contact_phone LIKE ? OR q.breakdown LIKE ? OR q.machines_json LIKE ? OR c.name LIKE ?)';
+        $like = '%' . addcslashes($f['q'], '%_\\') . '%'; array_push($p, $like, $like, $like, $like, $like, $like);
+    }
+    $st = $pdo->prepare('SELECT q.*, c.name AS company_name,
+        (SELECT COUNT(*) FROM quotation_revisions r WHERE r.quotation_id=q.id) AS rev_count,
+        (SELECT u.name FROM quotation_revisions r LEFT JOIN users u ON u.id=r.edited_by WHERE r.quotation_id=q.id ORDER BY r.revision_no DESC LIMIT 1) AS last_editor,
+        (SELECT r.created_at FROM quotation_revisions r WHERE r.quotation_id=q.id ORDER BY r.revision_no DESC LIMIT 1) AS last_edited_at
+        FROM quotations q LEFT JOIN companies c ON c.id=q.company_id WHERE ' . implode(' AND ', $where) . ' ORDER BY q.created_at DESC, q.id DESC');
+    $st->execute($p);
+    return $st->fetchAll();
+}
+
 function filters_from_request(): array {
     $f = [];
-    foreach (['sector', 'status', 'from', 'to', 'q'] as $k) $f[$k] = trim((string)($_GET[$k] ?? ''));
+    foreach (['sector', 'status', 'from', 'to', 'q', 'company'] as $k) $f[$k] = trim((string)($_GET[$k] ?? ''));
     foreach (['from', 'to'] as $k) if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $f[$k])) $f[$k] = '';
     return $f;
 }
@@ -427,22 +501,42 @@ function page_header(string $title, ?array $u = null): void {
 <script src="https://cdn.tailwindcss.com"></script></head>
 <body class="bg-slate-100 text-slate-800 min-h-screen">
 <?php if ($u): ?>
-<header class="bg-slate-900 text-white print:hidden"><div class="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center gap-4">
-  <a href="<?= url(home_for($u['role'])) ?>" class="font-bold text-lg">⚙ Breakdown Management</a>
-  <button id="nav-toggle" type="button" class="ml-auto rounded p-2 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-white md:hidden" aria-controls="primary-navigation" aria-expanded="false">
+<header class="bg-white text-slate-800 border-b border-slate-200 shadow-sm print:hidden"><div class="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center gap-4">
+  <a href="<?= url(home_for($u['role'])) ?>" class="font-bold text-lg text-blue-700">⚙ Breakdown Management</a>
+  <button id="nav-toggle" type="button" class="ml-auto rounded p-2 text-slate-600 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 md:hidden" aria-controls="primary-navigation" aria-expanded="false">
     <span class="sr-only">Toggle navigation</span>
     <svg aria-hidden="true" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
     </svg>
   </button>
-  <div id="primary-navigation" class="hidden w-full flex-col gap-3 border-t border-slate-700 pt-3 md:flex md:w-auto md:flex-1 md:flex-row md:items-center md:border-0 md:pt-0">
-    <nav class="flex flex-col gap-3 text-sm md:flex-1 md:flex-row">
-      <?php foreach ($nav as $href => $label): ?><a class="hover:underline" href="<?= url($href) ?>"><?= e($label) ?></a><?php endforeach; ?>
+  <div id="primary-navigation" class="hidden w-full flex-col gap-3 border-t border-slate-200 pt-3 md:flex md:w-auto md:flex-1 md:flex-row md:items-center md:border-0 md:pt-0">
+    <nav class="flex flex-col gap-1 text-sm md:flex-1 md:flex-row md:items-center">
+      <?php $cur = $_SERVER['SCRIPT_NAME'] ?? ''; foreach ($nav as $href => $label): $active = str_ends_with($cur, '/' . $href); ?><a class="rounded-md px-3 py-1.5 font-medium transition-colors <?= $active ? 'bg-blue-100 text-blue-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900' ?>"<?= $active ? ' aria-current="page"' : '' ?> href="<?= url($href) ?>"><?= e($label) ?></a><?php endforeach; ?>
     </nav>
-    <span class="text-sm text-slate-300"><?= e($u['name']) ?> (<?= e($u['role']) ?>)</span>
-    <a href="<?= url('logout.php') ?>" class="w-fit text-sm bg-blue-600 hover:bg-blue-700 rounded px-3 py-1">Logout</a>
+    <span class="text-sm text-slate-500"><?= e($u['name']) ?> (<?= e($u['role']) ?>)</span>
+    <a id="logout-link" href="<?= url('logout.php') ?>" class="w-fit text-sm font-medium bg-red-100 text-red-700 hover:bg-red-200 rounded-md px-3 py-1.5 transition-colors">Logout</a>
   </div>
 </div></header>
+<div id="logout-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 print:hidden" role="dialog" aria-modal="true" aria-labelledby="logout-title">
+  <div class="w-full max-w-sm rounded-lg bg-white p-6 shadow-xl">
+    <h2 id="logout-title" class="text-lg font-semibold">Log out?</h2>
+    <p class="mt-2 text-sm text-slate-600">Are you sure you want to log out? Any unsaved changes will be lost.</p>
+    <div class="mt-5 flex justify-end gap-2">
+      <button type="button" id="logout-cancel" class="rounded-md bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200">Cancel</button>
+      <a id="logout-confirm" href="<?= url('logout.php') ?>" class="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700">Log out</a>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  const modal = document.getElementById('logout-modal');
+  const close = () => modal.classList.add('hidden');
+  document.getElementById('logout-link').addEventListener('click', e => { e.preventDefault(); modal.classList.remove('hidden'); document.getElementById('logout-cancel').focus(); });
+  document.getElementById('logout-cancel').addEventListener('click', close);
+  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+})();
+</script>
 <script>
 (function () {
   const toggle = document.getElementById('nav-toggle');
@@ -735,24 +829,47 @@ function render_records(array $u, string $action): void {
 <?php   return;
     }
 
+    $canQuote = in_array($u['role'], ['admin', 'support'], true);
+    $tab = $canQuote && ($_GET['tab'] ?? '') === 'quotations' ? 'quotations' : 'breakdowns';
+    $companies = all_companies();
+    $base = $action . '?sector=' . (int)$sid;
+    $in = $cls . ' mt-1 block w-full';
+    $dateOk = fn($v) => preg_match('/^\d{4}-\d{2}-\d{2}$/', $v) ? $v : '';
     $status = (string)($_GET['status'] ?? '');
     if (!isset(STATUSES[$status])) $status = '';
-    $f = ['sector' => (string)$sid, 'status' => $status, 'from' => '', 'to' => '', 'q' => ''];
-    $rows = fetch_breakdowns($u, $f);
-    $qs = http_build_query(array_filter($f));
+    $f = ['sector' => (string)$sid, 'status' => $status, 'from' => $dateOk(trim((string)($_GET['from'] ?? ''))), 'to' => $dateOk(trim((string)($_GET['to'] ?? ''))),
+        'q' => trim((string)($_GET['q'] ?? '')), 'company' => (string)((int)($_GET['company'] ?? 0) ?: '')];
+    $bdCount = (int)$pdo->query('SELECT COUNT(*) FROM breakdowns WHERE sector_id=' . (int)$sid)->fetchColumn();
+    $qtCount = $canQuote ? (int)$pdo->query('SELECT COUNT(*) FROM quotations WHERE sector_id=' . (int)$sid)->fetchColumn() : 0;
+    $tabCls = fn($on) => 'px-4 py-2 text-sm font-medium border-b-2 -mb-px ' . ($on ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300');
     ?>
 <div class="flex items-center justify-between mb-4">
   <h2 class="text-xl font-semibold"><?= e($sector['name']) ?></h2>
   <a class="text-sm text-blue-600" href="<?= e($action) ?>">&larr; All sectors</a>
 </div>
-<?php if (in_array($u['role'], ['admin', 'support'], true)) { $formSector = $sid; $formAction = $action; include __DIR__ . '/breakdown_multi_form.php'; } ?>
-<form method="get" action="<?= e($action) ?>" class="bg-white rounded shadow p-4 mb-3 flex flex-wrap items-end gap-3 print:hidden">
+<?php if ($canQuote): ?>
+<div class="flex gap-1 border-b border-slate-300 mb-4 print:hidden">
+  <a href="<?= e($base) ?>" class="<?= $tabCls($tab === 'breakdowns') ?>">Breakdowns <span class="text-xs text-slate-500">(<?= $bdCount ?>)</span></a>
+  <a href="<?= e($base . '&tab=quotations') ?>" class="<?= $tabCls($tab === 'quotations') ?>">Quotations <span class="text-xs text-slate-500">(<?= $qtCount ?>)</span></a>
+</div>
+<?php endif;
+    if ($tab === 'breakdowns') {
+        $rows = fetch_breakdowns($u, $f);
+        $qs = http_build_query(array_filter($f));
+        if ($canQuote) { $formSector = $sid; $formAction = $action; include __DIR__ . '/breakdown_multi_form.php'; } ?>
+<form method="get" action="<?= e($action) ?>" class="bg-white rounded shadow p-4 mb-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-6 items-end print:hidden">
   <input type="hidden" name="sector" value="<?= (int)$sid ?>">
-  <label class="text-sm">Status<select name="status" onchange="this.form.submit()" class="mt-1 block border rounded px-3 py-2">
+  <label class="text-sm lg:col-span-2">Search<input name="q" value="<?= e($f['q']) ?>" placeholder="System, client, phone, note…" class="<?= $in ?>"></label>
+  <label class="text-sm">Company<select name="company" class="<?= $in ?>"><option value="">All companies</option>
+    <?php foreach ($companies as $c): ?><option value="<?= (int)$c['id'] ?>" <?= $f['company'] === (string)$c['id'] ? 'selected' : '' ?>><?= e($c['name']) ?></option><?php endforeach; ?></select></label>
+  <label class="text-sm">Status<select name="status" class="<?= $in ?>">
     <option value="">All statuses</option>
     <?php foreach (STATUSES as $k => $l): ?><option value="<?= e($k) ?>" <?= $status === $k ? 'selected' : '' ?>><?= e($l) ?></option><?php endforeach; ?>
   </select></label>
-  <?php if ($status !== ''): ?><a href="<?= e($action . '?sector=' . (int)$sid) ?>" class="text-sm text-slate-600 py-2">Clear</a><?php endif; ?>
+  <label class="text-sm">From<input type="date" name="from" value="<?= e($f['from']) ?>" class="<?= $in ?>"></label>
+  <label class="text-sm">To<input type="date" name="to" value="<?= e($f['to']) ?>" class="<?= $in ?>"></label>
+  <div class="flex gap-2 lg:col-span-6"><button class="bg-blue-600 hover:bg-blue-700 text-white rounded px-4 py-1.5 text-sm">Filter</button>
+    <a href="<?= e($base) ?>" class="text-sm text-slate-600 py-1.5">Clear</a></div>
 </form>
 <div class="flex flex-wrap gap-2 mb-3 print:hidden">
   <a href="<?= url('report.php?' . $qs) ?>" class="bg-green-600 hover:bg-green-700 text-white rounded px-3 py-1.5 text-sm">⬇ Download report (CSV)</a>
@@ -760,23 +877,44 @@ function render_records(array $u, string $action): void {
   <span class="text-sm text-slate-500 self-center"><?= count($rows) ?> record(s)</span>
 </div>
 <?php records_cards($rows, $u);
-    if (in_array($u['role'], ['admin', 'support'], true)) {
-        $qst = $pdo->prepare('SELECT * FROM quotations WHERE sector_id=? ORDER BY created_at DESC, id DESC');
-        $qst->execute([$sid]);
-        $savedQuotes = $qst->fetchAll(); ?>
-<h2 class="text-xl font-semibold mt-8 mb-3">Saved quotations</h2>
+        return;
+    }
+
+    $f['breakdown'] = (string)((int)($_GET['breakdown'] ?? 0) ?: '');
+    $quotes = fetch_quotations($sid, $f);
+    $quoteHome = $u['role'] === 'admin' ? 'admin/records.php' : 'support/records.php';
+    ?>
+<form method="get" action="<?= e($action) ?>" class="bg-white rounded shadow p-4 mb-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5 items-end print:hidden">
+  <input type="hidden" name="sector" value="<?= (int)$sid ?>"><input type="hidden" name="tab" value="quotations">
+  <?php if ($f['breakdown'] !== ''): ?><input type="hidden" name="breakdown" value="<?= e($f['breakdown']) ?>"><?php endif; ?>
+  <label class="text-sm lg:col-span-2">Search<input name="q" value="<?= e($f['q']) ?>" placeholder="Job ID, description, contact, phone…" class="<?= $in ?>"></label>
+  <label class="text-sm">Company<select name="company" class="<?= $in ?>"><option value="">All companies</option>
+    <?php foreach ($companies as $c): ?><option value="<?= (int)$c['id'] ?>" <?= $f['company'] === (string)$c['id'] ? 'selected' : '' ?>><?= e($c['name']) ?></option><?php endforeach; ?></select></label>
+  <label class="text-sm">From<input type="date" name="from" value="<?= e($f['from']) ?>" class="<?= $in ?>"></label>
+  <label class="text-sm">To<input type="date" name="to" value="<?= e($f['to']) ?>" class="<?= $in ?>"></label>
+  <div class="flex gap-2 lg:col-span-5"><button class="bg-blue-600 hover:bg-blue-700 text-white rounded px-4 py-1.5 text-sm">Filter</button>
+    <a href="<?= e($base . '&tab=quotations') ?>" class="text-sm text-slate-600 py-1.5">Clear</a>
+    <span class="text-sm text-slate-500 py-1.5 ml-auto"><?= count($quotes) ?> quotation(s)</span></div>
+</form>
 <div class="space-y-2">
-<?php foreach ($savedQuotes as $sq): ?>
+<?php foreach ($quotes as $sq):
+    $desc = trim((string)$sq['breakdown']);
+    if ($desc === '') { $m = json_decode($sq['machines_json'], true)[0] ?? null; $desc = $m ? trim($m['brand'] . ' ' . $m['model']) : 'Quotation'; } ?>
   <div class="flex flex-wrap items-center justify-between gap-3 bg-white rounded shadow px-4 py-3">
-    <div class="min-w-0">
-      <div class="font-semibold">Job ID #<?= (int)$sq['id'] ?></div>
-      <div class="text-sm text-slate-500"><?= e($sq['quote_date']) ?> &middot; <?= e($sq['contact_name']) ?> &middot; Total <?= number_format((float)$sq['total'], 2) ?></div>
+    <div class="min-w-0 flex-1">
+      <div class="text-sm text-slate-700 line-clamp-2 whitespace-pre-line"><?= e($desc) ?></div>
+      <div class="font-semibold">Job ID <?= e($sq['job_no'] ?: '#' . (int)$sq['id']) ?></div>
+      <div class="text-sm text-slate-500"><?= e($sq['quote_date']) ?> &middot; <?= e($sq['company_name'] ?? 'No company') ?> &middot; <?= e($sq['contact_name']) ?> &middot; Total <?= number_format((float)$sq['total'], 2) ?></div>
+      <?php if ((int)$sq['rev_count'] > 1): ?><div class="text-xs text-amber-700">Edited <?= e(date('Y-m-d H:i', strtotime($sq['last_edited_at']))) ?> by <?= e($sq['last_editor'] ?? 'Unknown user') ?> &middot; <?= (int)$sq['rev_count'] ?> versions</div><?php endif; ?>
     </div>
-    <a href="<?= url('quotation_view.php?id=' . (int)$sq['id']) ?>" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-2 text-sm">View</a>
+    <div class="flex gap-2">
+      <a href="<?= url('quotation_view.php?id=' . (int)$sq['id']) ?>" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-2 text-sm">View</a>
+      <a href="<?= url('quotation.php?quotation_id=' . (int)$sq['id']) ?>" class="bg-emerald-600 hover:bg-emerald-700 text-white rounded px-3 py-2 text-sm">Edit</a>
+    </div>
   </div>
-<?php endforeach; if (!$savedQuotes): ?><p class="text-slate-500">No saved quotations for this sector yet.</p><?php endif; ?>
+<?php endforeach; if (!$quotes): ?><p class="text-slate-500">No quotations found.</p><?php endif; ?>
 </div>
-<?php }
+<?php
 }
 
 function records_table(array $rows, bool $actions = false): void { ?>
@@ -798,16 +936,27 @@ function records_table(array $rows, bool $actions = false): void { ?>
 <?php }
 
 // Line-card list; each card opens the breakdown detail page.
-function records_cards(array $rows, array $u): void { ?>
+function records_cards(array $rows, array $u): void {
+    global $pdo;
+    $quotes = [];
+    if ($rows && in_array($u['role'], ['admin', 'support'], true)) {
+        $ids = implode(',', array_map(fn($r) => (int)$r['id'], $rows));
+        foreach ($pdo->query("SELECT breakdown_id, MAX(id) AS last_id, COUNT(*) AS n FROM quotations WHERE breakdown_id IN ($ids) GROUP BY breakdown_id") as $q) $quotes[(int)$q['breakdown_id']] = $q;
+    }
+    ?>
 <div class="space-y-2">
 <?php foreach ($rows as $r): ?>
   <div class="flex flex-wrap items-center justify-between gap-3 bg-white rounded shadow px-4 py-3">
     <a href="<?= url('breakdown.php?id=' . (int)$r['id']) ?>" class="min-w-0 flex-1 hover:text-blue-700">
       <div class="font-semibold truncate"><?= e($r['system_name']) ?></div>
       <div class="text-sm text-slate-500 truncate"><?= e($r['sector_name']) ?> &middot; <?= e($r['company_name'] ?? 'No company') ?> &middot; <?= e(date('Y-m-d H:i', strtotime($r['occurred_at']))) ?><?php if (!empty($r['technician_required'])): ?> &middot; Technicians: <?= e($r['technician_name'] ?? 'Not assigned') ?><?php endif; ?></div>
+      <?php if (trim((string)$r['description']) !== ''): ?><div class="text-sm text-slate-700 truncate">Problem: <?= e($r['description']) ?></div><?php endif; ?>
       <div class="text-sm text-slate-500">Client: <?= e($r['client_name']) ?><?php if (!empty($r['contact_phone'])): ?> (<?= e($r['contact_phone']) ?>)<?php endif; ?> &middot; Fixed by: <?= e($r['fixed_by']) ?></div>
       <div class="mt-1"><?= status_badge($r['status']) ?></div>
     </a>
+    <?php if (isset($quotes[(int)$r['id']])): $bq = $quotes[(int)$r['id']]; ?>
+      <a href="<?= url((int)$bq['n'] === 1 ? 'quotation_view.php?id=' . (int)$bq['last_id'] : ($u['role'] === 'admin' ? 'admin/records.php' : 'support/records.php') . '?sector=' . (int)$r['sector_id'] . '&tab=quotations&breakdown=' . (int)$r['id']) ?>" class="bg-slate-100 hover:bg-slate-200 text-slate-800 border rounded px-3 py-2 text-sm whitespace-nowrap">View quotation<?= (int)$bq['n'] > 1 ? 's (' . (int)$bq['n'] . ')' : '' ?></a>
+    <?php endif; ?>
     <?php if ($u['role'] === 'admin' && !empty($r['technician_required'])): ?>
       <a href="<?= url('quotation.php?breakdown_id=' . (int)$r['id']) ?>" target="_blank" rel="noopener" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-2 text-sm whitespace-nowrap">Make Quotations</a>
     <?php endif; ?>

@@ -71,6 +71,8 @@ document.addEventListener('input', e => {
           const title = el.querySelector('[data-n="client_title"]').value;
           const contactName = el.querySelector('[data-n="client_name"]').value;
           quoteUrl.searchParams.set('contact_name', title ? title + '. ' + contactName : contactName);
+          const companyId = el.querySelector('[data-n="company_id"]').value;
+          if (companyId) quoteUrl.searchParams.set('company_id', companyId);
           quoteUrl.searchParams.set('contact_phone', el.querySelector('[data-n="contact_phone"]').value);
           quoteUrl.searchParams.set('machine_model', el.querySelector('[data-n="system_name"]').value);
           quoteUrl.searchParams.set('breakdown', el.querySelector('[data-n="description"]').value);
