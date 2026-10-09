@@ -132,6 +132,21 @@ if (!$accessoryRows && $editQuote) {
     }
 }
 
+$returnedRows = [];
+$returnedRowsJson = (string)($_POST['returned_rows'] ?? $_GET['returned_rows'] ?? '');
+if ($returnedRowsJson !== '') {
+    $decodedReturned = json_decode($returnedRowsJson, true);
+    foreach (is_array($decodedReturned) ? $decodedReturned : [] as $ret) {
+        if (!is_array($ret)) continue;
+        $returnedRows[] = ['name' => trim((string)($ret['name'] ?? '')), 'brand' => trim((string)($ret['brand'] ?? '')),
+            'quantity' => trim((string)($ret['quantity'] ?? '')), 'note' => trim((string)($ret['note'] ?? ''))];
+    }
+} elseif ($editQuote) {
+    foreach (json_decode((string)($editQuote['returned_json'] ?? ''), true) ?: [] as $ret) {
+        $returnedRows[] = ['name' => (string)($ret['name'] ?? ''), 'brand' => (string)($ret['brand'] ?? ''), 'quantity' => (string)($ret['quantity'] ?? ''), 'note' => (string)($ret['note'] ?? '')];
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_quotation') {
     $quoteSectorId = $editQuote ? (int)$editQuote['sector_id'] : ($breakdownId ? (int)$row['sector_id'] : $sectorId);
     try {
@@ -163,11 +178,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
         $savedMachines = array_values(array_filter(array_map(fn($m) => [
             'category' => $m['category'], 'brand' => $m['brand'], 'model' => $m['model'], 'model_code' => $m['model_code'],
         ], $machineRows), fn($m) => $m['category'] . $m['brand'] . $m['model'] . $m['model_code'] !== ''));
-        if (!$savedMachines && !$savedAccessories) throw new InvalidArgumentException('Add at least one machine or accessory before saving.');
+        $savedReturned = [];
+        foreach ($returnedRows as $i => $ret) {
+            if ($ret['name'] === '' && $ret['brand'] === '' && $ret['quantity'] === '' && $ret['note'] === '') continue;
+            $n = $i + 1;
+            if ($ret['name'] === '' || mb_strlen($ret['name']) > 120 || mb_strlen($ret['brand']) > 120 || mb_strlen($ret['note']) > 255) {
+                throw new InvalidArgumentException("Returned item $n: enter a name (max 120 characters) and a note of up to 255 characters.");
+            }
+            if ($ret['quantity'] !== '' && !ctype_digit($ret['quantity'])) throw new InvalidArgumentException("Returned item $n: quantity must be a whole number.");
+            $savedReturned[] = ['name' => $ret['name'], 'brand' => $ret['brand'], 'quantity' => $ret['quantity'] === '' ? 1 : (int)$ret['quantity'], 'note' => $ret['note']];
+        }
+        if (!$savedMachines && !$savedAccessories && !$savedReturned) throw new InvalidArgumentException('Add at least one machine, accessory or returned item before saving.');
         $remark = trim((string)($_POST['remark'] ?? ''));
         $snapshot = ['quote_date' => $quoteDate, 'contact_name' => mb_substr($quote['contact_name'], 0, 190), 'contact_phone' => mb_substr($quote['contact_phone'], 0, 32),
             'breakdown' => $quote['breakdown'], 'remark' => $remark, 'machines_json' => json_encode($savedMachines, JSON_THROW_ON_ERROR),
-            'accessories_json' => json_encode($savedAccessories, JSON_THROW_ON_ERROR), 'total' => round($total, 2)];
+            'accessories_json' => json_encode($savedAccessories, JSON_THROW_ON_ERROR), 'total' => round($total, 2),
+            'returned_json' => json_encode($savedReturned, JSON_THROW_ON_ERROR)];
         $jobNo = null;
         // Quotations opened from the unsaved breakdown form have no link yet; match the breakdown by sector, company, contact phone and system.
         if (!$breakdownId && !$editQuote && $quoteCompanyId && $quote['contact_phone'] !== '') {
@@ -183,8 +209,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
             $pdo->beginTransaction();
             quotation_ensure_baseline($editQuote);
             quotation_add_revision($editId, $snapshot, (int)$u['id']);
-            $pdo->prepare('UPDATE quotations SET quote_date=?,contact_name=?,contact_phone=?,breakdown=?,remark=?,machines_json=?,accessories_json=?,total=? WHERE id=?')
-                ->execute([$snapshot['quote_date'], $snapshot['contact_name'], $snapshot['contact_phone'], $snapshot['breakdown'], $snapshot['remark'], $snapshot['machines_json'], $snapshot['accessories_json'], $snapshot['total'], $editId]);
+            $pdo->prepare('UPDATE quotations SET quote_date=?,contact_name=?,contact_phone=?,breakdown=?,remark=?,machines_json=?,accessories_json=?,total=?,returned_json=? WHERE id=?')
+                ->execute([$snapshot['quote_date'], $snapshot['contact_name'], $snapshot['contact_phone'], $snapshot['breakdown'], $snapshot['remark'], $snapshot['machines_json'], $snapshot['accessories_json'], $snapshot['total'], $snapshot['returned_json'], $editId]);
             $syncProblem();
             $pdo->commit();
             flash('Quotation updated. The previous version is kept below.');
@@ -205,9 +231,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
                 $pdo->prepare('UPDATE companies SET last_job_no=? WHERE id=?')->execute([$next, $quoteCompanyId]);
             }
         }
-        $pdo->prepare('INSERT INTO quotations (breakdown_id,sector_id,created_by,quote_date,contact_name,contact_phone,breakdown,remark,machines_json,accessories_json,total,company_id,job_no) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        $pdo->prepare('INSERT INTO quotations (breakdown_id,sector_id,created_by,quote_date,contact_name,contact_phone,breakdown,remark,machines_json,accessories_json,total,company_id,job_no,returned_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
             ->execute([$breakdownId ?: null, $quoteSectorId, (int)$u['id'], $snapshot['quote_date'], $snapshot['contact_name'], $snapshot['contact_phone'], $snapshot['breakdown'], $snapshot['remark'],
-                $snapshot['machines_json'], $snapshot['accessories_json'], $snapshot['total'], $quoteCompanyId ?: null, $jobNo]);
+                $snapshot['machines_json'], $snapshot['accessories_json'], $snapshot['total'], $quoteCompanyId ?: null, $jobNo, $snapshot['returned_json']]);
         quotation_add_revision((int)$pdo->lastInsertId(), $snapshot, (int)$u['id']);
         $syncProblem();
         $pdo->commit();
@@ -291,6 +317,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['
             'breakdown' => $quote['breakdown'],
             'machine_rows' => json_encode($machineRows, JSON_THROW_ON_ERROR),
             'accessory_rows' => json_encode($accessoryRows, JSON_THROW_ON_ERROR),
+            'returned_rows' => json_encode($returnedRows, JSON_THROW_ON_ERROR),
         ];
         flash($notice);
         redirect('quotation.php?' . http_build_query($returnParams));
@@ -345,6 +372,17 @@ page_header('Make Quotations');
       <div class="flex justify-end mt-3 font-bold">Total: <span id="accessory-total" class="ml-2">0.00</span></div>
       <div class="flex justify-end mt-3 print:hidden">
         <button type="button" id="add-accessory-row" class="border border-slate-400 rounded px-3 py-1.5 text-sm">+ Add another accessory</button>
+      </div>
+    </section>
+    <section class="md:col-span-2">
+      <div class="flex flex-wrap items-center gap-2 mb-2"><h2 class="font-semibold">Items received from customer</h2><span class="text-xs text-slate-500 print:hidden">Returned or provided by the customer (no price)</span></div>
+      <div id="returned-rows" class="space-y-3 print:hidden"></div>
+      <table id="returned-print-table" class="hidden print:table w-full text-sm border-collapse mt-1">
+        <thead><tr class="border-b border-t"><th class="text-left py-1 pr-2">Name</th><th class="text-left py-1 pr-2">Brand</th><th class="text-right py-1 pr-2">Qty</th><th class="text-left py-1">Note</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="flex justify-end mt-3 print:hidden">
+        <button type="button" id="add-returned-row" class="border border-slate-400 rounded px-3 py-1.5 text-sm">+ Add received item</button>
       </div>
     </section>
     <label class="text-sm md:col-span-2 font-bold">Breakdown<textarea id="quote-breakdown" rows="4" class="font-normal mt-1 w-full border rounded px-3 py-2 print:border-0 print:px-0"><?= e($quote['breakdown']) ?></textarea></label>
@@ -416,6 +454,22 @@ page_header('Make Quotations');
     <?php if ($u['role'] === 'admin'): ?><button type="button" class="save-accessory-to-inventory md:col-span-2 w-fit bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-1.5 text-sm print:hidden">Add this accessory to inventory</button><?php endif; ?>
   </div>
 </template>
+<template id="returned-row-template">
+  <div class="returned-row grid gap-3 md:grid-cols-2 border rounded p-3">
+    <div class="md:col-span-2 flex justify-between items-center">
+      <h3 class="font-medium">Received item <span class="returned-row-number"></span></h3>
+      <button type="button" class="remove-returned-row text-sm text-red-600">Remove</button>
+    </div>
+    <label class="text-sm md:col-span-2">Select from accessories
+      <input type="search" class="returned-pick mt-1 w-full border rounded px-3 py-2" list="returned-accessory-list" autocomplete="off" placeholder="Type to search or pick from the accessories list">
+    </label>
+    <label class="text-sm">Name<input data-field="name" maxlength="120" class="mt-1 w-full border rounded px-3 py-2"></label>
+    <label class="text-sm">Brand <span class="text-slate-400">(optional)</span><input data-field="brand" list="accessory-quotation-brands" maxlength="120" autocomplete="off" class="mt-1 w-full border rounded px-3 py-2"></label>
+    <label class="text-sm">Quantity<input data-field="quantity" type="number" min="1" step="1" placeholder="1" class="mt-1 w-full border rounded px-3 py-2"></label>
+    <label class="text-sm">Note <span class="text-slate-400">(optional, e.g. condition)</span><input data-field="note" maxlength="255" class="mt-1 w-full border rounded px-3 py-2"></label>
+  </div>
+</template>
+<datalist id="returned-accessory-list"><?php foreach ($accessories as $accessory): ?><option value="<?= e($accessory['name'] . ($accessory['brand'] ? ' · ' . $accessory['brand'] : '')) ?>"></option><?php endforeach; ?></datalist>
 <datalist id="accessory-quotation-brands"><?php foreach ($accessoryBrandTags as $brandTag): ?><option value="<?= e($brandTag) ?>"></option><?php endforeach; ?></datalist>
 <script>
 (function () {
@@ -425,6 +479,10 @@ page_header('Make Quotations');
   const accessoryBox = document.getElementById('accessory-rows');
   const accessoryTemplate = document.getElementById('accessory-row-template');
   const initialAccessoryRows = <?= json_encode($accessoryRows, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+  const returnedBox = document.getElementById('returned-rows');
+  const returnedTemplate = document.getElementById('returned-row-template');
+  const initialReturnedRows = <?= json_encode($returnedRows, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+  const accessoryCatalog = <?= json_encode(array_map(fn($a) => ['label' => $a['name'] . ($a['brand'] ? ' · ' . $a['brand'] : ''), 'name' => $a['name'], 'brand' => $a['brand'] ?? ''], $accessories), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
   const csrf = <?= json_encode(csrf_token()) ?>;
   const breakdownId = <?= $breakdownId ?>;
   const sectorId = <?= $sectorId ?>;
@@ -476,6 +534,53 @@ page_header('Make Quotations');
       quantity: row.querySelector('[data-field="quantity"]').value.trim(),
       discount_price: row.querySelector('[data-field="discount_price"]').value.trim()
     }));
+  }
+
+  function currentReturnedRows() {
+    return [...returnedBox.querySelectorAll('.returned-row')].map(row => ({
+      name: row.querySelector('[data-field="name"]').value.trim(),
+      brand: row.querySelector('[data-field="brand"]').value.trim(),
+      quantity: row.querySelector('[data-field="quantity"]').value.trim(),
+      note: row.querySelector('[data-field="note"]').value.trim()
+    }));
+  }
+
+  function refreshReturnedRows() {
+    const tbody = document.querySelector('#returned-print-table tbody');
+    tbody.replaceChildren();
+    [...returnedBox.querySelectorAll('.returned-row')].forEach((row, index) => {
+      row.querySelector('.returned-row-number').textContent = '#' + (index + 1);
+      const val = field => row.querySelector('[data-field="' + field + '"]').value.trim();
+      if (val('name') === '') return;
+      const tr = document.createElement('tr');
+      [[val('name'), 'text-left pr-2'], [val('brand'), 'text-left pr-2'], [val('quantity') || '1', 'text-right pr-2'], [val('note'), 'text-left']].forEach(([text, cls]) => {
+        const td = document.createElement('td');
+        td.textContent = text;
+        td.className = 'py-1 ' + cls;
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+  }
+
+  function addReturnedRow(data = {}) {
+    const row = returnedTemplate.content.firstElementChild.cloneNode(true);
+    for (const field of ['name', 'brand', 'quantity', 'note']) row.querySelector('[data-field="' + field + '"]').value = data[field] || '';
+    const pick = row.querySelector('.returned-pick');
+    pick.addEventListener('input', () => {
+      const match = accessoryCatalog.find(a => a.label.toLowerCase() === pick.value.trim().toLowerCase());
+      if (!match) return;
+      row.querySelector('[data-field="name"]').value = match.name;
+      row.querySelector('[data-field="brand"]').value = match.brand;
+      refreshReturnedRows();
+    });
+    row.querySelectorAll('[data-field]').forEach(input => input.addEventListener('input', refreshReturnedRows));
+    row.querySelector('.remove-returned-row').addEventListener('click', () => {
+      row.remove();
+      refreshReturnedRows();
+    });
+    returnedBox.appendChild(row);
+    refreshReturnedRows();
   }
 
   function refreshNumbers() {
@@ -538,7 +643,8 @@ page_header('Make Quotations');
         machine_model: '',
         breakdown: document.getElementById('quote-breakdown').value,
         machine_rows: JSON.stringify(currentRows()),
-        accessory_rows: JSON.stringify(currentAccessoryRows())
+        accessory_rows: JSON.stringify(currentAccessoryRows()),
+        returned_rows: JSON.stringify(currentReturnedRows())
       };
       for (const [name, value] of Object.entries(values)) {
         const input = document.createElement('input');
@@ -659,7 +765,8 @@ page_header('Make Quotations');
         machine_model: '',
         breakdown: document.getElementById('quote-breakdown').value,
         machine_rows: JSON.stringify(currentRows()),
-        accessory_rows: JSON.stringify(currentAccessoryRows())
+        accessory_rows: JSON.stringify(currentAccessoryRows()),
+        returned_rows: JSON.stringify(currentReturnedRows())
       };
       for (const [name, value] of Object.entries(values)) {
         const input = document.createElement('input');
@@ -719,7 +826,8 @@ page_header('Make Quotations');
       breakdown: document.getElementById('quote-breakdown').value,
       remark: document.getElementById('quote-remark').value,
       machine_rows: JSON.stringify(currentRows()),
-      accessory_rows: JSON.stringify(currentAccessoryRows())
+      accessory_rows: JSON.stringify(currentAccessoryRows()),
+      returned_rows: JSON.stringify(currentReturnedRows())
     };
     for (const [name, value] of Object.entries(values)) {
       const input = document.createElement('input');
@@ -733,6 +841,8 @@ page_header('Make Quotations');
   });
   document.getElementById('add-machine-row').addEventListener('click', () => addRow());
   document.getElementById('add-accessory-row').addEventListener('click', () => addAccessoryRow());
+  document.getElementById('add-returned-row').addEventListener('click', () => addReturnedRow());
+  initialReturnedRows.forEach(addReturnedRow);
   initialRows.forEach(addRow);
   (initialAccessoryRows.length ? initialAccessoryRows : [{}]).forEach(addAccessoryRow);
 })();
@@ -747,6 +857,7 @@ page_header('Make Quotations');
   .machine-print-summary { white-space: normal; }
   .accessory-row { display: block !important; border: 0 !important; padding: 0 !important; margin-bottom: 0.25rem; break-inside: avoid; }
   .accessory-print-summary { white-space: normal; }
+  .returned-row { display: none !important; }
   .quote-signatures { break-before: page; page-break-before: always; break-inside: avoid; page-break-inside: avoid; }
 }
 </style>

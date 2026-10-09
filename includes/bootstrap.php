@@ -116,6 +116,9 @@ if (!$pdo->query("SHOW COLUMNS FROM companies LIKE 'job_tag'")->fetch()) {
 if (!$pdo->query("SHOW COLUMNS FROM quotations LIKE 'job_no'")->fetch()) {
     $pdo->exec('ALTER TABLE quotations ADD company_id INT NULL, ADD job_no VARCHAR(60) NULL');
 }
+if (!$pdo->query("SHOW COLUMNS FROM quotations LIKE 'returned_json'")->fetch()) {
+    $pdo->exec('ALTER TABLE quotations ADD returned_json MEDIUMTEXT NULL');
+}
 $pdo->exec('CREATE TABLE IF NOT EXISTS quotation_revisions (
     id INT AUTO_INCREMENT PRIMARY KEY,
     quotation_id INT NOT NULL,
@@ -132,6 +135,9 @@ $pdo->exec('CREATE TABLE IF NOT EXISTS quotation_revisions (
     total DECIMAL(12,2) NOT NULL DEFAULT 0.00,
     UNIQUE KEY quotation_revision (quotation_id, revision_no)
 ) ENGINE=InnoDB');
+if (!$pdo->query("SHOW COLUMNS FROM quotation_revisions LIKE 'returned_json'")->fetch()) {
+    $pdo->exec('ALTER TABLE quotation_revisions ADD returned_json MEDIUMTEXT NULL');
+}
 $pdo->exec('CREATE TABLE IF NOT EXISTS edit_locks (
     resource_type VARCHAR(32) NOT NULL,
     resource_id INT NOT NULL,
@@ -435,8 +441,8 @@ function quotation_add_revision(int $qid, array $d, ?int $userId, ?string $at = 
     $st = $pdo->prepare('SELECT COALESCE(MAX(revision_no),0)+1 FROM quotation_revisions WHERE quotation_id=?');
     $st->execute([$qid]);
     $no = (int)$st->fetchColumn();
-    $pdo->prepare('INSERT INTO quotation_revisions (quotation_id,revision_no,edited_by,created_at,quote_date,contact_name,contact_phone,breakdown,remark,machines_json,accessories_json,total) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
-        ->execute([$qid, $no, $userId, $at ?? date('Y-m-d H:i:s'), $d['quote_date'], $d['contact_name'], $d['contact_phone'], $d['breakdown'], $d['remark'], $d['machines_json'], $d['accessories_json'], $d['total']]);
+    $pdo->prepare('INSERT INTO quotation_revisions (quotation_id,revision_no,edited_by,created_at,quote_date,contact_name,contact_phone,breakdown,remark,machines_json,accessories_json,total,returned_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        ->execute([$qid, $no, $userId, $at ?? date('Y-m-d H:i:s'), $d['quote_date'], $d['contact_name'], $d['contact_phone'], $d['breakdown'], $d['remark'], $d['machines_json'], $d['accessories_json'], $d['total'], $d['returned_json'] ?? '[]']);
     return $no;
 }
 

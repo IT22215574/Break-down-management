@@ -24,6 +24,7 @@ function quote_revision_meta(array $r, bool $isFirst): string {
 function render_quote_body(array $r, bool $signatures): void {
     $machines = json_decode($r['machines_json'], true) ?: [];
     $accessories = json_decode($r['accessories_json'], true) ?: [];
+    $returned = json_decode((string)($r['returned_json'] ?? ''), true) ?: [];
     ?>
   <div class="grid gap-2 text-sm mb-4">
     <div>Date: <?= e($r['quote_date']) ?></div>
@@ -60,6 +61,17 @@ function render_quote_body(array $r, bool $signatures): void {
     </tbody>
   </table>
   <div class="flex justify-end mt-3 font-bold">Total: <span class="ml-2"><?= number_format((float)$r['total'], 2) ?></span></div>
+  <?php endif; ?>
+  <?php if ($returned): ?>
+  <h2 class="font-semibold mt-4 mb-2">Items received from customer</h2>
+  <table class="w-full text-sm border-collapse">
+    <thead><tr class="border-b border-t"><th class="text-left py-1 pr-2">Name</th><th class="text-left py-1 pr-2">Brand</th><th class="text-right py-1 pr-2">Qty</th><th class="text-left py-1">Note</th></tr></thead>
+    <tbody>
+    <?php foreach ($returned as $ret): ?>
+      <tr><td class="py-1 pr-2"><?= e($ret['name']) ?></td><td class="py-1 pr-2"><?= e($ret['brand']) ?></td><td class="py-1 pr-2 text-right"><?= (int)$ret['quantity'] ?></td><td class="py-1"><?= e($ret['note']) ?></td></tr>
+    <?php endforeach; ?>
+    </tbody>
+  </table>
   <?php endif; ?>
   <div class="mt-4 text-sm"><div class="font-bold">Breakdown</div><div class="whitespace-pre-line"><?= e($r['breakdown']) ?></div></div>
   <div class="mt-4 text-sm"><div class="font-bold">Remark</div><div class="whitespace-pre-line"><?= e($r['remark']) ?></div></div>
