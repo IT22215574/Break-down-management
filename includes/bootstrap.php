@@ -262,7 +262,7 @@ function current_user(): ?array {
 }
 
 function home_for(string $role): string {
-    return ['admin' => 'admin/index.php', 'support' => 'support/index.php', 'user' => 'user/index.php'][$role];
+    return ['admin' => 'admin/dashboard.php', 'support' => 'support/index.php', 'user' => 'user/index.php'][$role];
 }
 
 function require_role(string ...$roles): array {
@@ -497,7 +497,7 @@ function page_header(string $title, ?array $u = null): void {
     $f = flash();
     $nav = [];
     if ($u) {
-        if ($u['role'] === 'admin') $nav = ['admin/index.php' => 'Sectors', 'admin/companies.php' => 'Company', 'admin/users.php' => 'Users', 'admin/technicians.php' => 'Technicians', 'admin/machines.php' => 'Machines', 'admin/accessories.php' => 'Accessories', 'admin/records.php' => 'Breakdowns'];
+        if ($u['role'] === 'admin') $nav = ['admin/dashboard.php' => 'Dashboard', 'admin/index.php' => 'Sectors', 'admin/companies.php' => 'Company', 'admin/users.php' => 'Users', 'admin/technicians.php' => 'Technicians', 'admin/machines.php' => 'Machines', 'admin/accessories.php' => 'Accessories', 'admin/records.php' => 'Breakdowns'];
         if ($u['role'] === 'support') $nav = ['support/index.php' => 'My sectors'];
         if ($u['role'] === 'user') $nav = ['user/index.php' => 'Breakdowns'];
     }

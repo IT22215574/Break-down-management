@@ -858,7 +858,7 @@ page_header('Make Quotations');
   .accessory-row { display: block !important; border: 0 !important; padding: 0 !important; margin-bottom: 0.25rem; break-inside: avoid; }
   .accessory-print-summary { white-space: normal; }
   .returned-row { display: none !important; }
-  .quote-signatures { break-before: page; page-break-before: always; break-inside: avoid; page-break-inside: avoid; }
+  .quote-signatures { break-before: auto; page-break-before: auto; break-inside: avoid; page-break-inside: avoid; }
 }
 </style>
 <?php page_footer(); ?>
